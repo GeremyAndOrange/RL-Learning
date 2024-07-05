@@ -1,6 +1,7 @@
 import math
 import numpy
 import random
+import datetime
 import torch.nn
 import matplotlib.pyplot
 
@@ -84,8 +85,7 @@ class ACNetWork(torch.nn.Module):
             torch.nn.Flatten(),
             torch.nn.Linear(64, 128),
             torch.nn.ReLU(),
-            torch.nn.Linear(128, 1),
-            torch.nn.Softmax(1),
+            torch.nn.Linear(128, 1)
         ]
         CriticLayer = [
             # 尺寸1024之内的都会被池化为1
@@ -102,8 +102,7 @@ class ACNetWork(torch.nn.Module):
             torch.nn.Flatten(),
             torch.nn.Linear(64, 128),
             torch.nn.ReLU(),
-            torch.nn.Linear(128, 1),
-            torch.nn.Softmax(1),
+            torch.nn.Linear(128, 1)
         ]
         self.ActorModel = torch.nn.Sequential(*ActorLayer)
         self.CriticModel = torch.nn.Sequential(*CriticLayer)
@@ -119,6 +118,12 @@ class ACNetWork(torch.nn.Module):
     def initialize(self):
         self.ActorLoss = []
         self.CriticLoss = []
+
+    def saveModel(self, path):
+        torch.save(self.state_dict(), path)
+
+    def loadModel(self, path):
+        self.load_state_dict(torch.load(path))
 
 # training
 def Train(dataPool, ACNet, ActorOptimizer, CriticOptimizer, lossFunction):
@@ -236,16 +241,24 @@ def ReinforcementLearning(epsilon):
                 dataPool.append((state, action, reward, nextState, over))
                 dataNum += 1
 
-        while len(dataPool) > 50000:
+        while len(dataPool) > 10000:
             dataPool.pop(0)
     
         # off-policy training
-        for _ in range(100):
+        for _ in range(10):
             Train(dataPool, ACNet, ActorOptimizer, CriticOptimizer, lossFunction)
-            print(f'epoch: {epoch}, trainNum: {_}')
+            text = f'epoch: {epoch}, trainNum: {_}, averageLoss: {sum(ACNet.ActorLoss) / len(ACNet.ActorLoss)}'
+            saveTrainText(text)
+            print(text)
         
+        # save model
+        if epoch % 10 == 0:
+            ACNet.saveModel(f'model-{epoch}.pkl')
+
         # print loss value
-        print(f'epoch: {epoch}, ActorLoss: {sum(ACNet.ActorLoss)}, CriticLoss: {sum(ACNet.CriticLoss)}')
+        text = f'epoch: {epoch}, ActorLoss: {sum(ACNet.ActorLoss)}, CriticLoss: {sum(ACNet.CriticLoss)}'
+        saveTrainText(text)
+        print(text)
         ACNet.initialize()
 
         # plan on this map
@@ -253,7 +266,9 @@ def ReinforcementLearning(epsilon):
         
         # plan on new map
         newMapInfo = GenerateGridMap()
-        print('new map')
+        text = 'new map'
+        saveTrainText(text)
+        print(text)
         Play(newMapInfo, ACNet)
 
 # play
@@ -265,14 +280,27 @@ def Play(mapInfo, ACNet):
         action = GetAction(state, ACNet)
         nodes, reward, over = Step(nodes, action, mapInfo)
         sumReward += reward
-        if over and nodes[-1].point == END:
-            print(f'nodeNumber: {nodeNumber}, pathDistance: {calDistance(nodes)}, sumReward: {sumReward}')
+        if over:
+            if nodes[-1].point == END:
+                text = f'nodeNumber: {nodeNumber}, pathDistance: {calDistance(nodes)}, sumReward: {sumReward}'
+                saveTrainText(text)
+                print(text)
+            else:
+                text = 'collision or out of map'
+                saveTrainText(text)
+                print(text)
             break
-        else:
-            print('collision')
     if not over:
-        print('no path')
+        text = 'no path'
+        saveTrainText(text)
+        print(text)
     DrawRRT(nodes, mapInfo)
+
+# save train text
+def saveTrainText(str):
+    with open('train.txt', 'a') as f:
+        f.write(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") + '\n')
+        f.write(str + '\n')
 
 # draw
 def DrawRRT(nodes, mapInfo):
