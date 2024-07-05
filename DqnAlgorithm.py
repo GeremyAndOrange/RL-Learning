@@ -68,7 +68,7 @@ EPOCHS = 1000           # 训练轮数
 
 # ACNetWork
 class ACNetWork(torch.nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, device) -> None:
         super(ACNetWork,self).__init__()
         ActorLayer = [
             # 尺寸1024之内的都会被池化为1
@@ -106,6 +106,7 @@ class ACNetWork(torch.nn.Module):
         ]
         self.ActorModel = torch.nn.Sequential(*ActorLayer)
         self.CriticModel = torch.nn.Sequential(*CriticLayer)
+        self.device = device
         self.initialize()
 
     def ActorForward(self, state):
@@ -131,8 +132,8 @@ def Train(dataPool, ACNet, ActorOptimizer, CriticOptimizer, lossFunction):
     state = torch.stack([data[0] for data in trainData]).unsqueeze(1)
     action = torch.stack([data[1] for data in trainData]).unsqueeze(1).unsqueeze(1).unsqueeze(1).expand(128,1,1,state.size(3))
     nextState = torch.stack([data[3] for data in trainData]).unsqueeze(1)
-    reward = torch.tensor(numpy.array([data[2] for data in trainData]), dtype=torch.float32).unsqueeze(1)
-    over = torch.tensor(numpy.array([data[4] for data in trainData]), dtype=torch.int64).unsqueeze(1)
+    reward = torch.tensor(numpy.array([data[2] for data in trainData]), dtype=torch.float32).unsqueeze(1).to(ACNet.device)
+    over = torch.tensor(numpy.array([data[4] for data in trainData]), dtype=torch.int64).unsqueeze(1).to(ACNet.device)
 
     Qvalues = ACNet.CriticForward(state, action)
     with torch.no_grad():
@@ -215,8 +216,9 @@ def Step(nodes, action, mapInfo):
     return nodes, reward, over
 
 # reinforcement learning
-def ReinforcementLearning(epsilon):
-    ACNet = ACNetWork()
+def ReinforcementLearning(epsilon, device):
+    ACNet = ACNetWork(device)
+    ACNet.to(device)
     ActorOptimizer = torch.optim.Adam(ACNet.ActorModel.parameters(),lr=0.001)
     CriticOptimizer = torch.optim.Adam(ACNet.CriticModel.parameters(),lr=0.01)
     lossFunction = torch.nn.MSELoss()
@@ -229,14 +231,14 @@ def ReinforcementLearning(epsilon):
         dataNum = 0
         while dataNum < 1000:
             nodes = [Node(START)]               # 初始化
-            state = GetState(nodes, mapInfo)
+            state = GetState(nodes, mapInfo).to(ACNet.device)
             nextState = state
             over = False
             while not over:
-                action = GetAction(nextState, ACNet)
+                action = GetAction(nextState, ACNet).to(ACNet.device)
                 state = nextState
                 nodes, reward, over = Step(nodes, action, mapInfo)
-                nextState = GetState(nodes, mapInfo)
+                nextState = GetState(nodes, mapInfo).to(ACNet.device)
                 # state:张量, action:张量, reward:浮点数, nextState:张量, over:布尔值
                 dataPool.append((state, action, reward, nextState, over))
                 dataNum += 1
@@ -245,7 +247,7 @@ def ReinforcementLearning(epsilon):
             dataPool.pop(0)
     
         # off-policy training
-        for _ in range(10):
+        for _ in range(100):
             Train(dataPool, ACNet, ActorOptimizer, CriticOptimizer, lossFunction)
             text = f'epoch: {epoch}, trainNum: {_}, averageLoss: {sum(ACNet.ActorLoss) / len(ACNet.ActorLoss)}'
             saveTrainText(text)
@@ -276,8 +278,8 @@ def Play(mapInfo, ACNet):
     nodes = [Node(START)]
     sumReward = 0
     for nodeNumber in range(MAX_NODES):
-        state = GetState(nodes, mapInfo)
-        action = GetAction(state, ACNet)
+        state = GetState(nodes, mapInfo).to(ACNet.device)
+        action = GetAction(state, ACNet).to(ACNet.device)
         nodes, reward, over = Step(nodes, action, mapInfo)
         sumReward += reward
         if over:
@@ -294,7 +296,7 @@ def Play(mapInfo, ACNet):
         text = 'no path'
         saveTrainText(text)
         print(text)
-    DrawRRT(nodes, mapInfo)
+    # DrawRRT(nodes, mapInfo)
 
 # save train text
 def saveTrainText(str):
@@ -334,7 +336,8 @@ def DrawRRT(nodes, mapInfo):
 
 # main
 def main():
-    ReinforcementLearning(EPSILON)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    ReinforcementLearning(EPSILON, device)
 
 if __name__ == '__main__':
     main()
