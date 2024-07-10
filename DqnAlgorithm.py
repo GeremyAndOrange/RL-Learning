@@ -22,6 +22,7 @@ MAP_LENGTH = 50         # 地图长度
 MAP_HEIGHT = 50         # 地图宽度
 MAP_RESOLUTION = 0.1    # 地图分辨率
 EPOCHS = 1000           # 训练轮数
+EPSILON = 0.99          # epsilon-greedy
 
 # general obstacles
 def GeneralObstacles():
