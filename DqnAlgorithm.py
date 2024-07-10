@@ -150,12 +150,14 @@ def Train(dataPool, ACNet, ActorOptimizer, CriticOptimizer, lossFunction):
     # 计算演员网络的损失
     actionPred = ACNet.ActorForward(state).unsqueeze(1).unsqueeze(1).expand(128,1,1,state.size(3))
     Qvalues = ACNet.CriticForward(state, actionPred)
-    ActorLoss = -Qvalues.mean()
+    ActorLoss = 1/Qvalues.mean()
     ACNet.ActorLoss.append(ActorLoss)
     # 更新演员网络
     ActorOptimizer.zero_grad()
     ActorLoss.backward()
     ActorOptimizer.step()
+
+    return CriticLoss, ActorLoss
 
 # get state
 def GetState(nodes, mapInfo):
@@ -166,8 +168,8 @@ def GetState(nodes, mapInfo):
     return state
 
 # get action
-def GetAction(state, ACNet):
-    if EPSILON > numpy.random.rand():
+def GetAction(state, ACNet, epsilon):
+    if epsilon > numpy.random.rand():
         action = torch.tensor(random.random() * 360, dtype=torch.float32)
     else:
         state = state.unsqueeze(0).unsqueeze(1)
@@ -178,17 +180,17 @@ def GetAction(state, ACNet):
 # get reward
 def GetReward(nodes, mapInfo):
     if nodes[-1].point == END:
-        reward = (MAX_NODES - len(nodes)) * 1
+        reward = (MAX_NODES - len(nodes)) * 0.1 + 1
     elif CheckCollision(nodes[-1], mapInfo):
-        reward = -(MAX_NODES - len(nodes))
+        reward = -1
     else:
         if len(nodes) != 1:
             oldDistance = numpy.linalg.norm(numpy.array(nodes[-2].point) - numpy.array(END))
             newDistance = numpy.linalg.norm(numpy.array(nodes[-1].point) - numpy.array(END))
             moveRate = (newDistance - oldDistance) / STEP_SIZE
-            reward = moveRate
+            reward = moveRate + 0.05
         else:
-            reward = -(MAX_NODES - len(nodes))
+            reward = -1
     return reward
 
 # step
@@ -220,14 +222,14 @@ def ReinforcementLearning(epsilon, device):
     ACNet = ACNetWork(device)
     ACNet.to(device)
     ActorOptimizer = torch.optim.Adam(ACNet.ActorModel.parameters(),lr=0.001)
-    CriticOptimizer = torch.optim.Adam(ACNet.CriticModel.parameters(),lr=0.01)
+    CriticOptimizer = torch.optim.Adam(ACNet.CriticModel.parameters(),lr=0.001)
     lossFunction = torch.nn.MSELoss()
 
     mapInfo = GenerateGridMap()
     dataPool = []
 
     for epoch in range(EPOCHS):
-        epsilon = max(epsilon * 0.999, 0.01)
+        epsilon = max(epsilon * 0.99, 0.01)
         dataNum = 0
         while dataNum < 1000:
             nodes = [Node(START)]               # 初始化
@@ -235,7 +237,7 @@ def ReinforcementLearning(epsilon, device):
             nextState = state
             over = False
             while not over:
-                action = GetAction(nextState, ACNet).to(ACNet.device)
+                action = GetAction(nextState, ACNet, epsilon).to(ACNet.device)
                 state = nextState
                 nodes, reward, over = Step(nodes, action, mapInfo)
                 nextState = GetState(nodes, mapInfo).to(ACNet.device)
@@ -248,8 +250,8 @@ def ReinforcementLearning(epsilon, device):
     
         # off-policy training
         for _ in range(100):
-            Train(dataPool, ACNet, ActorOptimizer, CriticOptimizer, lossFunction)
-            text = f'epoch: {epoch}, trainNum: {_}, averageLoss: {sum(ACNet.ActorLoss) / len(ACNet.ActorLoss)}'
+            CriticLoss, ActorLoss = Train(dataPool, ACNet, ActorOptimizer, CriticOptimizer, lossFunction)
+            text = f'epoch: {epoch}, trainNum: {_}, ActorLoss: {ActorLoss}, CriticLoss: {CriticLoss}'
             saveTrainText(text)
             print(text)
         
@@ -264,22 +266,22 @@ def ReinforcementLearning(epsilon, device):
         ACNet.initialize()
 
         # plan on this map
-        Play(mapInfo, ACNet)
+        Play(mapInfo, ACNet, epsilon)
         
         # plan on new map
         newMapInfo = GenerateGridMap()
         text = 'new map'
         saveTrainText(text)
         print(text)
-        Play(newMapInfo, ACNet)
+        Play(newMapInfo, ACNet, epsilon)
 
 # play
-def Play(mapInfo, ACNet):
+def Play(mapInfo, ACNet, epsilon):
     nodes = [Node(START)]
     sumReward = 0
     for nodeNumber in range(MAX_NODES):
         state = GetState(nodes, mapInfo).to(ACNet.device)
-        action = GetAction(state, ACNet).to(ACNet.device)
+        action = GetAction(state, ACNet, epsilon).to(ACNet.device)
         nodes, reward, over = Step(nodes, action, mapInfo)
         sumReward += reward
         if over:
@@ -288,7 +290,7 @@ def Play(mapInfo, ACNet):
                 saveTrainText(text)
                 print(text)
             else:
-                text = 'collision or out of map'
+                text = f'collision or out of map and step number is {len(nodes)}'
                 saveTrainText(text)
                 print(text)
             break
@@ -336,7 +338,8 @@ def DrawRRT(nodes, mapInfo):
 
 # main
 def main():
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cpu')
     ReinforcementLearning(EPSILON, device)
 
 if __name__ == '__main__':
