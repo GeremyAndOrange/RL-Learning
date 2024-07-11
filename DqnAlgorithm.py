@@ -52,7 +52,7 @@ def GenerateGridMap():
         for x in range(circleCenter[0] - circleRadius, circleCenter[0] + circleRadius + 1):
             for y in range(circleCenter[1] - circleRadius, circleCenter[1] + circleRadius + 1):
                 if numpy.linalg.norm(numpy.array(circleCenter) - numpy.array([x, y])) <= circleRadius:
-                    mapInfo[x][y] = 1
+                    mapInfo[x][y] = 255
     return mapInfo
 
 def calDistance(nodes):
@@ -72,54 +72,66 @@ class ACNetWork(torch.nn.Module):
         ActorLayer = [
             # 尺寸1024之内的都会被池化为1并映射为1维标量
             torch.nn.Conv2d(1, 32, 5, 1, 2),
-            torch.nn.MaxPool2d(5, ceil_mode=True),
+            torch.nn.AvgPool2d(5, ceil_mode=True),
             torch.nn.Conv2d(32, 32, 5, 1, 2),
-            torch.nn.MaxPool2d(5, ceil_mode=True),
+            torch.nn.AvgPool2d(5, ceil_mode=True),
             torch.nn.Conv2d(32, 64, 5, 1, 2),
-            torch.nn.MaxPool2d(5, ceil_mode=True),
+            torch.nn.AvgPool2d(5, ceil_mode=True),
             torch.nn.Conv2d(64, 64, 5, 1, 2),
-            torch.nn.MaxPool2d(5, ceil_mode=True),
+            torch.nn.AvgPool2d(5, ceil_mode=True),
             torch.nn.Conv2d(64, 64, 5, 1, 2),
-            torch.nn.MaxPool2d(5, ceil_mode=True),
+            torch.nn.AvgPool2d(5, ceil_mode=True),
             torch.nn.Flatten(),
             torch.nn.Linear(64, 128),
             torch.nn.ReLU(),
-            torch.nn.Linear(128, 1),
-            torch.nn.ReLU()
+            torch.nn.Linear(128, 1)
+        ]
+        ActionLayer = [
+            torch.nn.Linear(3, 128),
+            torch.nn.ReLU(),
+            torch.nn.Linear(128, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 1)
         ]
 
         CriticStateLayer = [
             torch.nn.Conv2d(1, 32, 5, 1, 2),
-            torch.nn.MaxPool2d(5, ceil_mode=True),
+            torch.nn.AvgPool2d(5, ceil_mode=True),
             torch.nn.Conv2d(32, 32, 5, 1, 2),
-            torch.nn.MaxPool2d(5, ceil_mode=True),
+            torch.nn.AvgPool2d(5, ceil_mode=True),
             torch.nn.Conv2d(32, 64, 5, 1, 2),
-            torch.nn.MaxPool2d(5, ceil_mode=True),
+            torch.nn.AvgPool2d(5, ceil_mode=True),
             torch.nn.Conv2d(64, 64, 5, 1, 2),
-            torch.nn.MaxPool2d(5, ceil_mode=True),
+            torch.nn.AvgPool2d(5, ceil_mode=True),
             torch.nn.Conv2d(64, 64, 5, 1, 2),
-            torch.nn.MaxPool2d(5, ceil_mode=True),
+            torch.nn.AvgPool2d(5, ceil_mode=True),
             torch.nn.Flatten(),
-            torch.nn.Linear(64, 1),
-            torch.nn.ReLU()
+            torch.nn.Linear(64, 1)
         ]
         CriticActionLayer = [
             torch.nn.Linear(2, 128),
             torch.nn.ReLU(),
             torch.nn.Linear(128, 64),
             torch.nn.ReLU(),
-            torch.nn.Linear(64, 1),
-            torch.nn.ReLU()
+            torch.nn.Linear(64, 1)
         ]
 
         self.ActorModel = torch.nn.Sequential(*ActorLayer)
+        self.ActionModel = torch.nn.Sequential(*ActionLayer)
         self.CriticStateModel = torch.nn.Sequential(*CriticStateLayer)
         self.CriticActionModel = torch.nn.Sequential(*CriticActionLayer)
         self.device = device
         self.initialize()
 
-    def ActorForward(self, state):
-        return self.ActorModel(state)
+    def standardizeState(self, degree):
+        degree = degree % 360
+        degree[degree < 0] += 360
+        return degree
+
+    def ActorForward(self, state, position):
+        mapFeature = torch.tensor(self.ActorModel(state).item(), dtype=torch.float32).to(self.device)
+        tensor = torch.cat((torch.stack([mapFeature]),position),0)
+        return self.standardizeState(self.ActionModel(tensor))
     
     def CriticForward(self, state, action):
         stateFeature = torch.tensor(self.CriticStateModel(state).item(), dtype=torch.float32).to(self.device)
@@ -138,12 +150,12 @@ class ACNetWork(torch.nn.Module):
 
 # training
 def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimizer, lossFunction, ACNet):
-    state = state.unsqueeze(0).unsqueeze(1)
-    nextState = nextState.unsqueeze(0).unsqueeze(1)
+    state, position = state[0].unsqueeze(0).unsqueeze(1), state[1]
+    nextState, nextPosition = nextState[0].unsqueeze(0).unsqueeze(1), nextState[1]
     # train
     Qvalue = ACNet.CriticForward(state, action)
     with torch.no_grad():
-        nextAction = torch.tensor(ACNet.ActorForward(nextState).item(), dtype=torch.float32).to(ACNet.device)
+        nextAction = torch.tensor(ACNet.ActorForward(nextState, nextPosition).item(), dtype=torch.float32).to(ACNet.device)
         nextQvalue = ACNet.CriticForward(nextState, nextAction)
         target = reward + 0.99 * nextQvalue * (1 - over)
     CriticLoss = lossFunction(Qvalue, target)
@@ -154,7 +166,7 @@ def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimize
     CriticOptimizer.step()
 
     # 计算演员网络的损失
-    actionPred = torch.tensor(ACNet.ActorForward(state).item(), dtype=torch.float32).to(ACNet.device)
+    actionPred = torch.tensor(ACNet.ActorForward(state, position).item(), dtype=torch.float32).to(ACNet.device)
     Qvalues = ACNet.CriticForward(state, actionPred)
     ActorLoss = -Qvalues.mean()
     ACNet.ActorLoss.append(ActorLoss)
@@ -164,18 +176,18 @@ def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimize
     ActorOptimizer.step()
 
 # get state
-def GetState(nodes, mapInfo):
+def GetState(nodes, mapInfo, ACNet):
     positionInfo = [int(item / MAP_RESOLUTION) for item in nodes[-1].point]
     enviroment = copy.deepcopy(mapInfo)
     enviroment[positionInfo[0]][positionInfo[1]] = 100
-    # state是一个二维张量,具体长度和地图尺寸相关
-    state = torch.tensor(enviroment, dtype=torch.float32)
+    state = [torch.tensor(enviroment, dtype=torch.float32).to(ACNet.device), torch.tensor(positionInfo, dtype=torch.float32).to(ACNet.device)]
+    # state是一个列表,二维张量,具体长度和地图尺寸相关
     return state
 
 # get action
 def GetAction(state, ACNet):
-    state = state.unsqueeze(0).unsqueeze(1)
-    action = torch.tensor(ACNet.ActorForward(state).item(), dtype=torch.float32)
+    state, position = state[0].unsqueeze(0).unsqueeze(1), state[1]
+    action = torch.tensor(ACNet.ActorForward(state, position).item(), dtype=torch.float32).to(ACNet.device)
     # action是一个一维张量,长度为1
     return action
 
@@ -223,25 +235,28 @@ def Step(nodes, action, mapInfo):
 def ReinforcementLearning(device):
     ACNet = ACNetWork(device)
     ACNet.to(device)
-    ActorOptimizer = torch.optim.Adam(ACNet.ActorModel.parameters(),lr=0.001)
-    CriticOptimizer = torch.optim.Adam(list(ACNet.CriticStateModel.parameters()) + list(ACNet.CriticActionModel.parameters()),lr=0.001)
+    ActorOptimizer = torch.optim.Adam(ACNet.ActorModel.parameters(),lr=0.01)
+    CriticOptimizer = torch.optim.Adam(list(ACNet.CriticStateModel.parameters()) + list(ACNet.CriticActionModel.parameters()),lr=0.01)
     lossFunction = torch.nn.MSELoss()
 
     mapInfo = GenerateGridMap()
+    
     for epoch in range(EPOCHS):
         # on-policy training
         for _ in range(100):
             nodes = [Node(START)]
-            state = GetState(nodes, mapInfo).to(ACNet.device)
+            state = GetState(nodes, mapInfo, ACNet)
             over = False
+            sumReward = 0
             while not over:
-                action = GetAction(state, ACNet).to(ACNet.device)
+                action = GetAction(state, ACNet)
                 nodes, reward, over = Step(nodes, action, mapInfo)
-                nextState = GetState(nodes, mapInfo).to(ACNet.device)
+                nextState = GetState(nodes, mapInfo, ACNet)
                 state = nextState
+                sumReward += reward
                 # state:张量, action:张量, reward:浮点数, nextState:张量, over:布尔值
                 Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimizer, lossFunction, ACNet)
-            text = f'epoch: {epoch}, trainNum: {_}, ActorLoss: {sum(ACNet.ActorLoss)}, CriticLoss: {sum(ACNet.CriticLoss)}'
+            text = f'epoch: {epoch}, trainNum: {_}, ActorLoss: {sum(ACNet.ActorLoss)}, CriticLoss: {sum(ACNet.CriticLoss)}, sumReward: {sumReward}, stepNum: {len(nodes)}'
             saveTrainText(text)
             ACNet.initialize()
         
@@ -254,8 +269,6 @@ def ReinforcementLearning(device):
         
         # plan on new map
         newMapInfo = GenerateGridMap()
-        text = 'new map'
-        saveTrainText(text)
         Play(newMapInfo, ACNet)
 
 # play
@@ -263,8 +276,8 @@ def Play(mapInfo, ACNet):
     nodes = [Node(START)]
     sumReward = 0
     for nodeNumber in range(MAX_NODES):
-        state = GetState(nodes, mapInfo).to(ACNet.device)
-        action = GetAction(state, ACNet).to(ACNet.device)
+        state = GetState(nodes, mapInfo, ACNet)
+        action = GetAction(state, ACNet)
         nodes, reward, over = Step(nodes, action, mapInfo)
         sumReward += reward
         if over:
