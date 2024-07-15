@@ -233,7 +233,7 @@ def ReinforcementLearning(device):
     
     for epoch in range(EPOCHS):
         # on-policy training
-        for _ in range(1000):
+        for _ in range(100):
             nodes = [Node(START)]
             state = GetState(nodes, mapInfo, ACNet)
             over = False
