@@ -13,7 +13,7 @@ class Node:
 # parameters
 START = [1, 1]          # 起点坐标
 END = [50, 50]          # 终点坐标
-MAX_NODES = 2000        # 节点最大数量
+MAX_NODES = 200         # 节点最大数量
 STEP_SIZE = 0.5         # 步长
 OBSTACLE_NUM = 5        # 障碍物数量
 OBSTACLE_RADIUS = 5     # 障碍物半径
@@ -23,6 +23,7 @@ MAP_RESOLUTION = 0.5    # 地图分辨率
 EPOCHS = 1000           # 训练轮数
 EPSILON = 0.99          # epsilon-greedy
 SCAN_RANGE = 31         # 智能体扫描范围
+ALPHA = 3               # 奖励权重
 
 # enumeration value
 COLLISION = 255
@@ -82,26 +83,21 @@ class ACNetWork(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Linear(16, 4),
             torch.nn.ReLU(),
-            torch.nn.Linear(4, 1)
+            torch.nn.Linear(4, 1),
+            torch.nn.Tanh()
         ]
 
         CriticStateLayer = [
             torch.nn.Linear((SCAN_RANGE+1)**2, 256),
             torch.nn.ReLU(),
-            torch.nn.Linear(256, 64),
-            torch.nn.ReLU(),
+            torch.nn.Linear(256, 63)
+        ]
+        CriticActionLayer = [
             torch.nn.Linear(64, 16),
             torch.nn.ReLU(),
             torch.nn.Linear(16, 4),
             torch.nn.ReLU(),
             torch.nn.Linear(4, 1)
-        ]
-        CriticActionLayer = [
-            torch.nn.Linear(2, 64),
-            torch.nn.ReLU(),
-            torch.nn.Linear(64, 16),
-            torch.nn.ReLU(),
-            torch.nn.Linear(16, 1)
         ]
 
         self.ActorModel = torch.nn.Sequential(*ActorLayer)
@@ -112,12 +108,12 @@ class ACNetWork(torch.nn.Module):
 
     def ActorForward(self, state):
         state = state.view(1,(SCAN_RANGE+1)**2)
-        return self.ActorModel(state)
+        return self.ActorModel(state) * 360
     
     def CriticForward(self, state, action):
         state = state.view(1,(SCAN_RANGE+1)**2)
         stateFeature = self.CriticStateModel(state)
-        tensor = torch.cat((stateFeature.squeeze(0), action.unsqueeze(0)), 0)
+        tensor = torch.cat((stateFeature.squeeze(0), action), 0)
         return self.CriticActionModel(tensor)
     
     def initialize(self):
@@ -135,7 +131,7 @@ def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimize
     # train
     Qvalue = ACNet.CriticForward(state, action)
     with torch.no_grad():
-        nextAction = torch.tensor(ACNet.ActorForward(nextState).item(), dtype=torch.float32).to(ACNet.device)
+        nextAction = ACNet.ActorForward(nextState).squeeze(0)
         nextQvalue = ACNet.CriticForward(nextState, nextAction)
         target = reward + 0.9 * nextQvalue * (1 - over)
     CriticLoss = lossFunction(Qvalue, target)
@@ -146,7 +142,7 @@ def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimize
     CriticOptimizer.step()
 
     # 用更新后的评论家网络计算演员网络的损失
-    Qvalues = ACNet.CriticForward(state, action)
+    Qvalues = ACNet.CriticForward(state, ACNet.ActorForward(state).squeeze(0))
     ActorLoss = -Qvalues.mean()
     ACNet.ActorLoss.append(ActorLoss)
     # 更新演员网络
@@ -173,13 +169,11 @@ def GetState(nodes, mapInfo, ACNet):
     return state
 
 # get action
-def GetAction(state, ACNet):
-    if random.random() < 0.1:
-        direction = numpy.array(END) - numpy.array(START)
-        action = numpy.arctan2(direction[1], direction[0]) * (180 / numpy.pi)
-        action = torch.tensor(action, dtype=torch.float32).to(ACNet.device)
+def GetAction(state, ACNet, epsilon):
+    if random.random() < epsilon:
+        action = torch.tensor(random.random()*360, dtype=torch.float32).unsqueeze(0).to(ACNet.device)
     else:
-        action = torch.tensor(ACNet.ActorForward(state).item(), dtype=torch.float32).to(ACNet.device)
+        action = ACNet.ActorForward(state).squeeze(0)
     # action是一个一维张量,长度为1
     return action
 
@@ -187,13 +181,13 @@ def GetAction(state, ACNet):
 def GetReward(nodes, mapInfo):
     if nodes[-1].point == END:
         reward = (MAX_NODES - len(nodes)) * 1
-    elif CheckCollision(nodes[-1], mapInfo):
+    elif (nodes[-1].point[0] >= 0 and nodes[-1].point[0] <= 50 and nodes[-1].point[1] >= 0 and nodes[-1].point[1] <= 50) and CheckCollision(nodes[-1], mapInfo):
         reward = (MAX_NODES - len(nodes)) * (-1)
     else:
         oldDistance = numpy.linalg.norm(numpy.array(nodes[-2].point) - numpy.array(END))
         newDistance = numpy.linalg.norm(numpy.array(nodes[-1].point) - numpy.array(END))
         moveRate = (oldDistance - newDistance) / STEP_SIZE
-        reward = moveRate + 0.5
+        reward = ALPHA * moveRate + 0.5
 
     return reward
 
@@ -220,10 +214,10 @@ def Step(nodes, action, mapInfo):
     return nodes, reward, over
 
 # reinforcement learning
-def ReinforcementLearning(device):
+def ReinforcementLearning(device, epsilon):
     ACNet = ACNetWork(device)
     ACNet.to(device)
-    ActorOptimizer = torch.optim.Adam(ACNet.ActorModel.parameters(),lr=0.01)
+    ActorOptimizer = torch.optim.Adam(ACNet.ActorModel.parameters(),lr=0.005)
     CriticOptimizer = torch.optim.Adam(list(ACNet.CriticStateModel.parameters()) + list(ACNet.CriticActionModel.parameters()),lr=0.01)
     lossFunction = torch.nn.MSELoss()
 
@@ -234,12 +228,13 @@ def ReinforcementLearning(device):
     for epoch in range(EPOCHS):
         # on-policy training
         for _ in range(100):
+            epsilon = max(0.05, epsilon * 0.999)
             nodes = [Node(START)]
             state = GetState(nodes, mapInfo, ACNet)
             over = False
             sumReward = 0
             while not over:
-                action = GetAction(state, ACNet)
+                action = GetAction(state, ACNet, epsilon)
                 nodes, reward, over = Step(nodes, action, mapInfo)
                 nextState = GetState(nodes, mapInfo, ACNet)
                 state = nextState
@@ -262,7 +257,7 @@ def Play(mapInfo, ACNet):
     sumReward = 0
     for nodeNumber in range(MAX_NODES):
         state = GetState(nodes, mapInfo, ACNet)
-        action = GetAction(state, ACNet)
+        action = GetAction(state, ACNet, 0)
         nodes, reward, over = Step(nodes, action, mapInfo)
         sumReward += reward
         if over:
@@ -320,7 +315,7 @@ def DrawPath(nodes, mapInfo):
 # main
 def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    ReinforcementLearning(device)
+    ReinforcementLearning(device, EPSILON)
     # DrawPath([Node(START)],numpy.loadtxt('map.txt'))
 
 if __name__ == '__main__':
