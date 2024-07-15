@@ -1,5 +1,4 @@
 import math
-import copy
 import numpy
 import random
 import datetime
@@ -20,9 +19,14 @@ OBSTACLE_NUM = 5        # 障碍物数量
 OBSTACLE_RADIUS = 5     # 障碍物半径
 MAP_LENGTH = 50         # 地图长度
 MAP_HEIGHT = 50         # 地图宽度
-MAP_RESOLUTION = 0.1    # 地图分辨率
+MAP_RESOLUTION = 0.5    # 地图分辨率
 EPOCHS = 1000           # 训练轮数
 EPSILON = 0.99          # epsilon-greedy
+SCAN_RANGE = 31         # 智能体扫描范围
+
+# enumeration value
+COLLISION = 255
+ROBOT = 127
 
 # general obstacles
 def GeneralObstacles():
@@ -37,7 +41,7 @@ def GeneralObstacles():
 # check collision
 def CheckCollision(node, mapInfo):
     point = numpy.array(node.point)
-    if mapInfo[int(point[0] / MAP_RESOLUTION)][int(point[1] / MAP_RESOLUTION)] == 1:
+    if mapInfo[int(point[0] / MAP_RESOLUTION)][int(point[1] / MAP_RESOLUTION)] == COLLISION:
         return True
     return False
 
@@ -52,7 +56,7 @@ def GenerateGridMap():
         for x in range(circleCenter[0] - circleRadius, circleCenter[0] + circleRadius + 1):
             for y in range(circleCenter[1] - circleRadius, circleCenter[1] + circleRadius + 1):
                 if numpy.linalg.norm(numpy.array(circleCenter) - numpy.array([x, y])) <= circleRadius:
-                    mapInfo[x][y] = 255
+                    mapInfo[x][y] = COLLISION
     return mapInfo
 
 def calDistance(nodes):
@@ -70,72 +74,50 @@ class ACNetWork(torch.nn.Module):
     def __init__(self, device) -> None:
         super(ACNetWork,self).__init__()
         ActorLayer = [
-            # 尺寸1024之内的都会被池化为1并映射为1维标量
-            torch.nn.Conv2d(1, 32, 5, 1, 2),
-            torch.nn.AvgPool2d(5, ceil_mode=True),
-            torch.nn.Conv2d(32, 32, 5, 1, 2),
-            torch.nn.AvgPool2d(5, ceil_mode=True),
-            torch.nn.Conv2d(32, 64, 5, 1, 2),
-            torch.nn.AvgPool2d(5, ceil_mode=True),
-            torch.nn.Conv2d(64, 64, 5, 1, 2),
-            torch.nn.AvgPool2d(5, ceil_mode=True),
-            torch.nn.Conv2d(64, 64, 5, 1, 2),
-            torch.nn.AvgPool2d(5, ceil_mode=True),
-            torch.nn.Flatten(),
-            torch.nn.Linear(64, 128),
+            torch.nn.Linear((SCAN_RANGE+1)**2, 256),
             torch.nn.ReLU(),
-            torch.nn.Linear(128, 1)
-        ]
-        ActionLayer = [
-            torch.nn.Linear(3, 128),
+            torch.nn.Linear(256, 64),
             torch.nn.ReLU(),
-            torch.nn.Linear(128, 64),
+            torch.nn.Linear(64, 16),
             torch.nn.ReLU(),
-            torch.nn.Linear(64, 1)
+            torch.nn.Linear(16, 4),
+            torch.nn.ReLU(),
+            torch.nn.Linear(4, 1)
         ]
 
         CriticStateLayer = [
-            torch.nn.Conv2d(1, 32, 5, 1, 2),
-            torch.nn.AvgPool2d(5, ceil_mode=True),
-            torch.nn.Conv2d(32, 32, 5, 1, 2),
-            torch.nn.AvgPool2d(5, ceil_mode=True),
-            torch.nn.Conv2d(32, 64, 5, 1, 2),
-            torch.nn.AvgPool2d(5, ceil_mode=True),
-            torch.nn.Conv2d(64, 64, 5, 1, 2),
-            torch.nn.AvgPool2d(5, ceil_mode=True),
-            torch.nn.Conv2d(64, 64, 5, 1, 2),
-            torch.nn.AvgPool2d(5, ceil_mode=True),
-            torch.nn.Flatten(),
-            torch.nn.Linear(64, 1)
+            torch.nn.Linear((SCAN_RANGE+1)**2, 256),
+            torch.nn.ReLU(),
+            torch.nn.Linear(256, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 16),
+            torch.nn.ReLU(),
+            torch.nn.Linear(16, 4),
+            torch.nn.ReLU(),
+            torch.nn.Linear(4, 1)
         ]
         CriticActionLayer = [
-            torch.nn.Linear(2, 128),
+            torch.nn.Linear(2, 64),
             torch.nn.ReLU(),
-            torch.nn.Linear(128, 64),
+            torch.nn.Linear(64, 16),
             torch.nn.ReLU(),
-            torch.nn.Linear(64, 1)
+            torch.nn.Linear(16, 1)
         ]
 
         self.ActorModel = torch.nn.Sequential(*ActorLayer)
-        self.ActionModel = torch.nn.Sequential(*ActionLayer)
         self.CriticStateModel = torch.nn.Sequential(*CriticStateLayer)
         self.CriticActionModel = torch.nn.Sequential(*CriticActionLayer)
         self.device = device
         self.initialize()
 
-    def standardizeState(self, degree):
-        degree = degree % 360
-        degree[degree < 0] += 360
-        return degree
-
-    def ActorForward(self, state, position):
-        mapFeature = torch.tensor(self.ActorModel(state).item(), dtype=torch.float32).to(self.device)
-        tensor = torch.cat((torch.stack([mapFeature]),position),0)
-        return self.standardizeState(self.ActionModel(tensor))
+    def ActorForward(self, state):
+        state = state.view(1,(SCAN_RANGE+1)**2)
+        return self.ActorModel(state)
     
     def CriticForward(self, state, action):
-        stateFeature = torch.tensor(self.CriticStateModel(state).item(), dtype=torch.float32).to(self.device)
-        tensor = torch.stack([stateFeature, action])
+        state = state.view(1,(SCAN_RANGE+1)**2)
+        stateFeature = self.CriticStateModel(state)
+        tensor = torch.cat((stateFeature.squeeze(0), action.unsqueeze(0)), 0)
         return self.CriticActionModel(tensor)
     
     def initialize(self):
@@ -150,12 +132,10 @@ class ACNetWork(torch.nn.Module):
 
 # training
 def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimizer, lossFunction, ACNet):
-    state, position = state[0].unsqueeze(0).unsqueeze(1), state[1]
-    nextState, nextPosition = nextState[0].unsqueeze(0).unsqueeze(1), nextState[1]
     # train
     Qvalue = ACNet.CriticForward(state, action)
     with torch.no_grad():
-        nextAction = torch.tensor(ACNet.ActorForward(nextState, nextPosition).item(), dtype=torch.float32).to(ACNet.device)
+        nextAction = torch.tensor(ACNet.ActorForward(nextState).item(), dtype=torch.float32).to(ACNet.device)
         nextQvalue = ACNet.CriticForward(nextState, nextAction)
         target = reward + 0.99 * nextQvalue * (1 - over)
     CriticLoss = lossFunction(Qvalue, target)
@@ -165,9 +145,8 @@ def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimize
     CriticLoss.backward()
     CriticOptimizer.step()
 
-    # 计算演员网络的损失
-    actionPred = torch.tensor(ACNet.ActorForward(state, position).item(), dtype=torch.float32).to(ACNet.device)
-    Qvalues = ACNet.CriticForward(state, actionPred)
+    # 用更新后的评论家网络计算演员网络的损失
+    Qvalues = ACNet.CriticForward(state, action)
     ActorLoss = -Qvalues.mean()
     ACNet.ActorLoss.append(ActorLoss)
     # 更新演员网络
@@ -178,33 +157,44 @@ def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimize
 # get state
 def GetState(nodes, mapInfo, ACNet):
     positionInfo = [int(item / MAP_RESOLUTION) for item in nodes[-1].point]
-    enviroment = copy.deepcopy(mapInfo)
-    enviroment[positionInfo[0]][positionInfo[1]] = 100
-    state = [torch.tensor(enviroment, dtype=torch.float32).to(ACNet.device), torch.tensor(positionInfo, dtype=torch.float32).to(ACNet.device)]
-    # state是一个列表,二维张量,具体长度和地图尺寸相关
+    state = [[0 for _ in range(SCAN_RANGE + 1)] for _ in range(SCAN_RANGE + 1)]
+
+    for x in range(SCAN_RANGE + 1):
+        for y in range(SCAN_RANGE + 1):
+            map_x = x+(positionInfo[0] - SCAN_RANGE//2)
+            map_y = y+(positionInfo[1] - SCAN_RANGE//2)
+            if map_x >= 0 and map_x <= int(MAP_LENGTH / MAP_RESOLUTION) and map_y >= 0 and map_y <= int(MAP_HEIGHT / MAP_RESOLUTION) :
+                state[x][y] = mapInfo[map_x][map_y]
+            else:
+                state[x][y] = -1
+    state[SCAN_RANGE//2][SCAN_RANGE//2] = ROBOT
+    state = torch.tensor(numpy.array(state), dtype=torch.float32).to(ACNet.device)
+    # state是一个二维张量
     return state
 
 # get action
 def GetAction(state, ACNet):
-    state, position = state[0].unsqueeze(0).unsqueeze(1), state[1]
-    action = torch.tensor(ACNet.ActorForward(state, position).item(), dtype=torch.float32).to(ACNet.device)
+    if random.random() < 0.1:
+        direction = numpy.array(END) - numpy.array(START)
+        action = numpy.arctan2(direction[1], direction[0]) * (180 / numpy.pi)
+        action = torch.tensor(action, dtype=torch.float32).to(ACNet.device)
+    else:
+        action = torch.tensor(ACNet.ActorForward(state).item(), dtype=torch.float32).to(ACNet.device)
     # action是一个一维张量,长度为1
     return action
 
 # get reward
 def GetReward(nodes, mapInfo):
     if nodes[-1].point == END:
-        reward = (MAX_NODES - len(nodes)) * 0.001 + 1
+        reward = (MAX_NODES - len(nodes)) * 1
     elif CheckCollision(nodes[-1], mapInfo):
-        reward = -1
+        reward = (MAX_NODES - len(nodes)) * (-1)
     else:
-        if len(nodes) != 1:
-            oldDistance = numpy.linalg.norm(numpy.array(nodes[-2].point) - numpy.array(END))
-            newDistance = numpy.linalg.norm(numpy.array(nodes[-1].point) - numpy.array(END))
-            moveRate = (oldDistance - newDistance) / STEP_SIZE
-            reward = moveRate + 0.0005
-        else:
-            reward = -1
+        oldDistance = numpy.linalg.norm(numpy.array(nodes[-2].point) - numpy.array(END))
+        newDistance = numpy.linalg.norm(numpy.array(nodes[-1].point) - numpy.array(END))
+        moveRate = (oldDistance - newDistance) / STEP_SIZE
+        reward = moveRate + 0.005
+
     return reward
 
 # step
@@ -216,13 +206,11 @@ def Step(nodes, action, mapInfo):
         over = True
     else:
         newPoint = numpy.array(nodes[-1].point) + numpy.array([STEP_SIZE * math.cos(action.item() / 180 * math.pi), STEP_SIZE * math.sin(action.item() / 180 * math.pi)])
-        if newPoint[0] >= 0 and newPoint[0] <= 50 and newPoint[1] >= 0 and newPoint[1] <= 50:
-            newNode = Node(list(newPoint), nodes[-1])
+        newNode = Node(list(newPoint), nodes[-1])
+        nodes.append(newNode)
+        if newPoint[0] >= 0 and newPoint[0] <= MAP_LENGTH and newPoint[1] >= 0 and newPoint[1] <= MAP_HEIGHT:
             if CheckCollision(newNode, mapInfo):
                 over = True
-                nodes.append(newNode)
-            else:
-                nodes.append(newNode)
         else:
             over = True
     reward = GetReward(nodes, mapInfo)
@@ -235,15 +223,17 @@ def Step(nodes, action, mapInfo):
 def ReinforcementLearning(device):
     ACNet = ACNetWork(device)
     ACNet.to(device)
-    ActorOptimizer = torch.optim.Adam(ACNet.ActorModel.parameters(),lr=0.01)
-    CriticOptimizer = torch.optim.Adam(list(ACNet.CriticStateModel.parameters()) + list(ACNet.CriticActionModel.parameters()),lr=0.01)
+    ActorOptimizer = torch.optim.Adam(ACNet.ActorModel.parameters(),lr=0.003)
+    CriticOptimizer = torch.optim.Adam(list(ACNet.CriticStateModel.parameters()) + list(ACNet.CriticActionModel.parameters()),lr=0.003)
     lossFunction = torch.nn.MSELoss()
 
-    mapInfo = GenerateGridMap()
+    # mapInfo = GenerateGridMap()
+    # numpy.savetxt('map.txt', mapInfo)
+    mapInfo = numpy.loadtxt('map.txt')
     
     for epoch in range(EPOCHS):
         # on-policy training
-        for _ in range(100):
+        for _ in range(1000):
             nodes = [Node(START)]
             state = GetState(nodes, mapInfo, ACNet)
             over = False
@@ -263,13 +253,8 @@ def ReinforcementLearning(device):
         # save model
         if epoch % 10 == 0:
             ACNet.saveModel(f'model-{epoch}.pkl')
-
-        # plan on this map
-        Play(mapInfo, ACNet)
-        
-        # plan on new map
-        newMapInfo = GenerateGridMap()
-        Play(newMapInfo, ACNet)
+            # plan on this map
+            Play(mapInfo, ACNet)
 
 # play
 def Play(mapInfo, ACNet):
@@ -291,7 +276,8 @@ def Play(mapInfo, ACNet):
     if not over:
         text = f'no path, sumReward: {sumReward}'
         saveTrainText(text)
-    # DrawRRT(nodes, mapInfo)
+    
+    DrawPath(nodes, mapInfo)
 
 # save train text
 def saveTrainText(str):
@@ -301,7 +287,7 @@ def saveTrainText(str):
     print(str)
 
 # draw
-def DrawRRT(nodes, mapInfo):
+def DrawPath(nodes, mapInfo):
     matplotlib.pyplot.figure(figsize=(10, 10))
     finalPath = []
     node = nodes[-1]
@@ -312,29 +298,30 @@ def DrawRRT(nodes, mapInfo):
 
     for node in nodes:
         if node.parent is not None and node not in finalPath:
-            matplotlib.pyplot.plot([node.point[0], node.parent.point[0]], [node.point[1], node.parent.point[1]], 'r-')
+            matplotlib.pyplot.plot([int(node.point[0] / MAP_RESOLUTION), int(node.parent.point[0] / MAP_RESOLUTION)], [int(node.point[1] / MAP_RESOLUTION), int(node.parent.point[1] / MAP_RESOLUTION)], 'r-')
 
     for item in range(len(finalPath) - 1):
-        matplotlib.pyplot.plot([finalPath[item][0], finalPath[item + 1][0]], [finalPath[item][1], finalPath[item + 1][1]], 'k-')
+        matplotlib.pyplot.plot([int(finalPath[item][0] / MAP_RESOLUTION), int(finalPath[item + 1][0] / MAP_RESOLUTION)], [int(finalPath[item][1] / MAP_RESOLUTION), int(finalPath[item + 1][1] / MAP_RESOLUTION)], 'k-')
 
     for row in range(len(mapInfo)):
         for column in range(len(mapInfo[row])):
-            if mapInfo[row][column] == 1:
+            if mapInfo[row][column] == COLLISION:
+                # 对每一个障碍物格子填色
                 rectangle = matplotlib.pyplot.Rectangle((row, column), MAP_RESOLUTION, MAP_RESOLUTION, edgecolor='blue', facecolor='blue')
                 matplotlib.pyplot.gca().add_patch(rectangle)
         
-    matplotlib.pyplot.plot(START[0], START[1], 'go')
-    matplotlib.pyplot.plot(END[0], END[1], 'go')
-    matplotlib.pyplot.xlim(0, 50)
-    matplotlib.pyplot.ylim(0, 50)
+    matplotlib.pyplot.plot(int(START[0] / MAP_RESOLUTION), int(START[1] / MAP_RESOLUTION), 'go')
+    matplotlib.pyplot.plot(int(END[0] / MAP_RESOLUTION), int(END[1] / MAP_RESOLUTION), 'go')
+    matplotlib.pyplot.xlim(0, int(MAP_LENGTH / MAP_RESOLUTION + 1))
+    matplotlib.pyplot.ylim(0, int(MAP_HEIGHT / MAP_RESOLUTION + 1))
     matplotlib.pyplot.gca().set_aspect('equal', adjustable='box')
     matplotlib.pyplot.show()
 
 # main
 def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # device = torch.device('cpu')
     ReinforcementLearning(device)
+    # DrawPath([Node(START)],numpy.loadtxt('map.txt'))
 
 if __name__ == '__main__':
     main()
