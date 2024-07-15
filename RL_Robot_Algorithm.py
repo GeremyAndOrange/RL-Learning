@@ -137,7 +137,7 @@ def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimize
     with torch.no_grad():
         nextAction = torch.tensor(ACNet.ActorForward(nextState).item(), dtype=torch.float32).to(ACNet.device)
         nextQvalue = ACNet.CriticForward(nextState, nextAction)
-        target = reward + 0.99 * nextQvalue * (1 - over)
+        target = reward + 0.9 * nextQvalue * (1 - over)
     CriticLoss = lossFunction(Qvalue, target)
     ACNet.CriticLoss.append(CriticLoss)
     # 更新评论家网络
@@ -193,7 +193,7 @@ def GetReward(nodes, mapInfo):
         oldDistance = numpy.linalg.norm(numpy.array(nodes[-2].point) - numpy.array(END))
         newDistance = numpy.linalg.norm(numpy.array(nodes[-1].point) - numpy.array(END))
         moveRate = (oldDistance - newDistance) / STEP_SIZE
-        reward = moveRate + 0.005
+        reward = moveRate + 0.5
 
     return reward
 
@@ -223,8 +223,8 @@ def Step(nodes, action, mapInfo):
 def ReinforcementLearning(device):
     ACNet = ACNetWork(device)
     ACNet.to(device)
-    ActorOptimizer = torch.optim.Adam(ACNet.ActorModel.parameters(),lr=0.003)
-    CriticOptimizer = torch.optim.Adam(list(ACNet.CriticStateModel.parameters()) + list(ACNet.CriticActionModel.parameters()),lr=0.003)
+    ActorOptimizer = torch.optim.Adam(ACNet.ActorModel.parameters(),lr=0.01)
+    CriticOptimizer = torch.optim.Adam(list(ACNet.CriticStateModel.parameters()) + list(ACNet.CriticActionModel.parameters()),lr=0.01)
     lossFunction = torch.nn.MSELoss()
 
     # mapInfo = GenerateGridMap()
