@@ -22,7 +22,7 @@ MAP_HEIGHT = 50         # 地图宽度
 MAP_RESOLUTION = 0.5    # 地图分辨率
 EPOCHS = 1000           # 训练轮数
 EPSILON = 0.99          # epsilon-greedy
-SCAN_RANGE = 99         # 智能体扫描范围
+SCAN_RANGE = 31         # 智能体扫描范围
 ALPHA = 3               # 奖励权重
 
 # enumeration value
@@ -76,27 +76,22 @@ class ACNetWork(torch.nn.Module):
         super(ACNetWork,self).__init__()
         ActorLayer = [
             torch.nn.Linear((SCAN_RANGE+1)**2, 256),
-            torch.nn.ReLU(),
-            torch.nn.Linear(256, 64),
-            torch.nn.ReLU(),
-            torch.nn.Linear(64, 16),
-            torch.nn.ReLU(),
-            torch.nn.Linear(16, 4),
-            torch.nn.ReLU(),
-            torch.nn.Linear(4, 1),
-            torch.nn.Tanh()
+            torch.nn.LeakyReLU(),
+            torch.nn.Linear(256, 16),
+            torch.nn.LeakyReLU(),
+            torch.nn.Linear(16, 1)
         ]
 
         CriticStateLayer = [
             torch.nn.Linear((SCAN_RANGE+1)**2, 256),
-            torch.nn.ReLU(),
+            torch.nn.LeakyReLU(),
             torch.nn.Linear(256, 63)
         ]
         CriticActionLayer = [
             torch.nn.Linear(64, 16),
-            torch.nn.ReLU(),
+            torch.nn.LeakyReLU(),
             torch.nn.Linear(16, 4),
-            torch.nn.ReLU(),
+            torch.nn.LeakyReLU(),
             torch.nn.Linear(4, 1)
         ]
 
@@ -108,7 +103,7 @@ class ACNetWork(torch.nn.Module):
 
     def ActorForward(self, state):
         state = state.view(1,(SCAN_RANGE+1)**2)
-        return self.ActorModel(state) * 360
+        return self.ActorModel(state)
     
     def CriticForward(self, state, action):
         state = state.view(1,(SCAN_RANGE+1)**2)
@@ -227,8 +222,8 @@ def ReinforcementLearning(device, epsilon):
     
     for epoch in range(EPOCHS):
         # on-policy training
-        for _ in range(100):
-            epsilon = max(0.05, epsilon * 0.999)
+        for _ in range(1000):
+            epsilon = max(0.05, epsilon * 0.9999)
             nodes = [Node(START)]
             state = GetState(nodes, mapInfo, ACNet)
             over = False
@@ -246,10 +241,11 @@ def ReinforcementLearning(device, epsilon):
             ACNet.initialize()
         
         # save model
-        if epoch % 10 == 0:
+        if epoch % 100 == 0:
             ACNet.saveModel(f'model-{epoch}.pkl')
             # plan on this map
-        Play(mapInfo, ACNet)
+    
+    Play(mapInfo, ACNet)
 
 # play
 def Play(mapInfo, ACNet):
