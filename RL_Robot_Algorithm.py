@@ -22,7 +22,7 @@ MAP_HEIGHT = 50         # 地图宽度
 MAP_RESOLUTION = 0.5    # 地图分辨率
 EPOCHS = 1000           # 训练轮数
 EPSILON = 0.99          # epsilon-greedy
-SCAN_RANGE = 31         # 智能体扫描范围
+SCAN_RANGE = 99         # 智能体扫描范围
 ALPHA = 3               # 奖励权重
 
 # enumeration value
@@ -249,7 +249,7 @@ def ReinforcementLearning(device, epsilon):
         if epoch % 10 == 0:
             ACNet.saveModel(f'model-{epoch}.pkl')
             # plan on this map
-            Play(mapInfo, ACNet)
+        Play(mapInfo, ACNet)
 
 # play
 def Play(mapInfo, ACNet):
