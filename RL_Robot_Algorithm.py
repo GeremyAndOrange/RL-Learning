@@ -76,7 +76,7 @@ class ACNetWork(torch.nn.Module):
     def __init__(self, device) -> None:
         super(ACNetWork,self).__init__()
         StateFeatureLayer = [
-            # input 1*32*32 output 32
+            # input 1*32*32 output 16
             torch.nn.Conv2d(1, 16, 5, 1, 1),
             torch.nn.MaxPool2d(2),
             torch.nn.Conv2d(16, 32, 5, 1, 1),
@@ -84,30 +84,26 @@ class ACNetWork(torch.nn.Module):
             torch.nn.Conv2d(32, 32, 5, 1, 1),
             torch.nn.MaxPool2d(2),
             torch.nn.Flatten(),
-            torch.nn.Linear(128, 32)
+            torch.nn.Linear(128, 16)
         ]
         ActionFeatureLayer = [
-            # input 1 output 32
-            torch.nn.Linear(1, 16),
-            torch.nn.LeakyReLU(),
-            torch.nn.Linear(16, 16),
-            torch.nn.LeakyReLU(),
-            torch.nn.Linear(16, 32)
+            # input 1 output 16
+            torch.nn.Linear(1, 32),
+            torch.nn.LeakyReLU(0.1),
+            torch.nn.Linear(32, 16)
         ]
 
         ActorLayer = [
-            torch.nn.Linear(32, 128),
-            torch.nn.LeakyReLU(),
-            torch.nn.Linear(128, 128),
-            torch.nn.LeakyReLU(),
-            torch.nn.Linear(128, 1)
+            torch.nn.Linear(16, 64),
+            torch.nn.LeakyReLU(0.1),
+            torch.nn.Linear(64, 16),
+            torch.nn.LeakyReLU(0.1),
+            torch.nn.Linear(16, 1)
         ]
         CriticLayer = [
-            torch.nn.Linear(64, 16),
-            torch.nn.LeakyReLU(),
-            torch.nn.Linear(16, 4),
-            torch.nn.LeakyReLU(),
-            torch.nn.Linear(4, 1)
+            torch.nn.Linear(32, 8),
+            torch.nn.LeakyReLU(0.1),
+            torch.nn.Linear(8, 1)
         ]
 
         self.StateFeatureModel = torch.nn.Sequential(*StateFeatureLayer)
@@ -123,7 +119,7 @@ class ACNetWork(torch.nn.Module):
     
     def CriticForward(self, state, action):
         stateFeature = self.StateFeatureModel(state)
-        actionFeature = self.ActionFeatureModel(action.float())
+        actionFeature = self.ActionFeatureModel(action)
         tensor = torch.cat((stateFeature, actionFeature), 1)
         return self.CriticModel(tensor)
     
@@ -139,9 +135,9 @@ class ACNetWork(torch.nn.Module):
 
 # training
 def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimizer, lossFunction, ACNet):
-    # for param in ACNet.ActorModel.parameters():
-    #     if param.grad is not None:
-    #         print(f" gradient = {param.grad}")
+    for param in ACNet.ActorModel.parameters():
+        if param.grad is not None:
+            print(f" gradient = {param.grad}")
     # train
     Qvalue = ACNet.CriticForward(state, action)
     with torch.no_grad():
@@ -158,7 +154,7 @@ def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimize
     # 更新演员网络的损失
     actionPre = GetAction(state, ACNet)
     Qvalue = ACNet.CriticForward(state, actionPre)
-    ActorLoss = -Qvalue
+    ActorLoss = -Qvalue.mean()
     ACNet.ActorLoss.append(ActorLoss.item())
     # 更新演员网络
     ActorOptimizer.zero_grad()
@@ -185,6 +181,9 @@ def GetState(nodes, mapInfo, ACNet):
 
 # get action
 def GetAction(state, ACNet):
+    # actionProb = ACNet.ActorForward(state)
+    # distribution = torch.distributions.Categorical(actionProb)
+    # action = distribution.sample().float().unsqueeze(0)
     action = ACNet.ActorForward(state)
     # action是一个一维张量,长度为1
     return action
