@@ -98,10 +98,9 @@ class ACNetWork(torch.nn.Module):
         ActorLayer = [
             torch.nn.Linear(32, 128),
             torch.nn.LeakyReLU(),
-            torch.nn.Linear(128, 256),
+            torch.nn.Linear(128, 128),
             torch.nn.LeakyReLU(),
-            torch.nn.Linear(256, 360),
-            torch.nn.Softmax(1)
+            torch.nn.Linear(128, 1)
         ]
         CriticLayer = [
             torch.nn.Linear(64, 16),
@@ -124,7 +123,7 @@ class ACNetWork(torch.nn.Module):
     
     def CriticForward(self, state, action):
         stateFeature = self.StateFeatureModel(state)
-        actionFeature = self.ActionFeatureModel(action.float()).unsqueeze(0)
+        actionFeature = self.ActionFeatureModel(action.float())
         tensor = torch.cat((stateFeature, actionFeature), 1)
         return self.CriticModel(tensor)
     
@@ -140,13 +139,13 @@ class ACNetWork(torch.nn.Module):
 
 # training
 def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimizer, lossFunction, ACNet):
-    for param in ACNet.StateFeatureModel.parameters():
+    for param in ACNet.ActorModel.parameters():
         if param.grad is not None:
             print(f" gradient = {param.grad}")
     # train
     Qvalue = ACNet.CriticForward(state, action)
     with torch.no_grad():
-        nextAction, _ = GetAction(nextState, ACNet)
+        nextAction = GetAction(nextState, ACNet)
         nextQvalue = ACNet.CriticForward(nextState, nextAction)
         target = reward + 0.9 * nextQvalue * (1 - over)
     CriticLoss = lossFunction(Qvalue, target)
@@ -157,9 +156,9 @@ def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimize
     CriticOptimizer.step()
 
     # 更新演员网络的损失
-    actionPre, logProbs = GetAction(state, ACNet)
+    actionPre = GetAction(state, ACNet)
     Qvalue = ACNet.CriticForward(state, actionPre)
-    ActorLoss = -logProbs * Qvalue.detach()
+    ActorLoss = -Qvalue
     ACNet.ActorLoss.append(ActorLoss.item())
     # 更新演员网络
     ActorOptimizer.zero_grad()
@@ -186,11 +185,9 @@ def GetState(nodes, mapInfo, ACNet):
 
 # get action
 def GetAction(state, ACNet):
-    actionProbs = ACNet.ActorForward(state)
-    distribution = torch.distributions.Categorical(probs = actionProbs)
-    action = distribution.sample()
+    action = ACNet.ActorForward(state)
     # action是一个一维张量,长度为1
-    return action, distribution.log_prob(action)
+    return action
 
 # get reward
 def GetReward(nodes, mapInfo):
@@ -232,8 +229,8 @@ def Step(nodes, action, mapInfo):
 def ReinforcementLearning(device):
     ACNet = ACNetWork(device)
     ACNet.to(device)
-    ActorOptimizer = torch.optim.Adam(list(ACNet.StateFeatureModel.parameters()) + list(ACNet.ActorModel.parameters()),lr=0.003)
-    CriticOptimizer = torch.optim.Adam(list(ACNet.ActionFeatureModel.parameters()) + list(ACNet.CriticModel.parameters()),lr=0.003)
+    ActorOptimizer = torch.optim.Adam(ACNet.ActorModel.parameters(),lr=0.003)
+    CriticOptimizer = torch.optim.Adam(list(ACNet.StateFeatureModel.parameters()) + list(ACNet.ActionFeatureModel.parameters()) + list(ACNet.CriticModel.parameters()),lr=0.003)
     lossFunction = torch.nn.MSELoss()
 
     mapInfo = GenerateGridMap()
@@ -248,7 +245,7 @@ def ReinforcementLearning(device):
             over = False
             sumReward = 0
             while not over:
-                action, _ = GetAction(state, ACNet)
+                action = GetAction(state, ACNet)
                 nodes, reward, over = Step(nodes, action, mapInfo)
                 nextState = GetState(nodes, mapInfo, ACNet)
                 state = nextState
@@ -270,7 +267,7 @@ def Play(mapInfo, ACNet):
     sumReward = 0
     for nodeNumber in range(MAX_NODES):
         state = GetState(nodes, mapInfo, ACNet)
-        action, _ = GetAction(state, ACNet)
+        action = GetAction(state, ACNet)
         nodes, reward, over = Step(nodes, action, mapInfo)
         sumReward += reward
         if over:
