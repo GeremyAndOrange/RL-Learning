@@ -229,8 +229,8 @@ def Step(nodes, action, mapInfo):
 def ReinforcementLearning(device):
     ACNet = ACNetWork(device)
     ACNet.to(device)
-    ActorOptimizer = torch.optim.Adam(ACNet.ActorModel.parameters(),lr=0.003)
-    CriticOptimizer = torch.optim.Adam(list(ACNet.StateFeatureModel.parameters()) + list(ACNet.ActionFeatureModel.parameters()) + list(ACNet.CriticModel.parameters()),lr=0.003)
+    ActorOptimizer = torch.optim.Adam(list(ACNet.StateFeatureModel.parameters()) + list(ACNet.ActorModel.parameters()),lr=0.001)
+    CriticOptimizer = torch.optim.Adam(list(ACNet.StateFeatureModel.parameters()) + list(ACNet.ActionFeatureModel.parameters()) + list(ACNet.CriticModel.parameters()),lr=0.001)
     lossFunction = torch.nn.MSELoss()
 
     mapInfo = GenerateGridMap()
@@ -239,7 +239,7 @@ def ReinforcementLearning(device):
     
     for epoch in range(EPOCHS):
         # on-policy training
-        for trainNum in range(1000):
+        for trainNum in range(100):
             nodes = [Node(START)]
             state = GetState(nodes, mapInfo, ACNet)
             over = False
@@ -281,7 +281,7 @@ def Play(mapInfo, ACNet):
     if not over:
         text = f'no path, sumReward: {sumReward}'
         saveTrainText(text)
-    # DrawPath(nodes, mapInfo)
+    DrawPath(nodes, mapInfo)
 
 # save train text
 def saveTrainText(str):
