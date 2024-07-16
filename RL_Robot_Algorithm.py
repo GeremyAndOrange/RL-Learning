@@ -139,9 +139,9 @@ class ACNetWork(torch.nn.Module):
 
 # training
 def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimizer, lossFunction, ACNet):
-    for param in ACNet.ActorModel.parameters():
-        if param.grad is not None:
-            print(f" gradient = {param.grad}")
+    # for param in ACNet.ActorModel.parameters():
+    #     if param.grad is not None:
+    #         print(f" gradient = {param.grad}")
     # train
     Qvalue = ACNet.CriticForward(state, action)
     with torch.no_grad():
