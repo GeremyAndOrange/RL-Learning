@@ -18,7 +18,7 @@ MAP_RESOLUTION = 0.5    # 地图分辨率
 EPOCHS = 1000           # 训练轮数
 EPSILON = 0.99          # epsilon-greedy
 SCAN_RANGE = 31         # 智能体扫描范围
-ALPHA = 3               # 奖励权重
+ALPHA = 1               # 奖励权重
 
 # enumeration value
 COLLISION = 255
@@ -89,25 +89,25 @@ class ACNetWork(torch.nn.Module):
         ActionFeatureLayer = [
             # input 1 output 32
             torch.nn.Linear(1, 16),
-            torch.nn.ReLU(),
+            torch.nn.LeakyReLU(),
             torch.nn.Linear(16, 16),
-            torch.nn.ReLU(),
+            torch.nn.LeakyReLU(),
             torch.nn.Linear(16, 32)
         ]
 
         ActorLayer = [
             torch.nn.Linear(32, 128),
-            torch.nn.ReLU(),
+            torch.nn.LeakyReLU(),
             torch.nn.Linear(128, 256),
-            torch.nn.ReLU(),
+            torch.nn.LeakyReLU(),
             torch.nn.Linear(256, 360),
             torch.nn.Softmax(1)
         ]
         CriticLayer = [
             torch.nn.Linear(64, 16),
-            torch.nn.ReLU(),
+            torch.nn.LeakyReLU(),
             torch.nn.Linear(16, 4),
-            torch.nn.ReLU(),
+            torch.nn.LeakyReLU(),
             torch.nn.Linear(4, 1)
         ]
 
@@ -139,7 +139,10 @@ class ACNetWork(torch.nn.Module):
         self.load_state_dict(torch.load(path))
 
 # training
-def Train(state, action, reward, nextState, over, logProbs, ActorOptimizer, CriticOptimizer, lossFunction, ACNet):
+def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimizer, lossFunction, ACNet):
+    for param in ACNet.StateFeatureModel.parameters():
+        if param.grad is not None:
+            print(f" gradient = {param.grad}")
     # train
     Qvalue = ACNet.CriticForward(state, action)
     with torch.no_grad():
@@ -154,7 +157,9 @@ def Train(state, action, reward, nextState, over, logProbs, ActorOptimizer, Crit
     CriticOptimizer.step()
 
     # 更新演员网络的损失
-    ActorLoss = -logProbs * (Qvalue - target).detach()
+    actionPre, logProbs = GetAction(state, ACNet)
+    Qvalue = ACNet.CriticForward(state, actionPre)
+    ActorLoss = -logProbs * Qvalue.detach()
     ACNet.ActorLoss.append(ActorLoss.item())
     # 更新演员网络
     ActorOptimizer.zero_grad()
@@ -243,13 +248,13 @@ def ReinforcementLearning(device):
             over = False
             sumReward = 0
             while not over:
-                action, logProbs = GetAction(state, ACNet)
+                action, _ = GetAction(state, ACNet)
                 nodes, reward, over = Step(nodes, action, mapInfo)
                 nextState = GetState(nodes, mapInfo, ACNet)
                 state = nextState
                 sumReward += reward
                 # state:张量, action:张量, reward:浮点数, nextState:张量, over:布尔值
-                Train(state, action, reward, nextState, over, logProbs, ActorOptimizer, CriticOptimizer, lossFunction, ACNet)
+                Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimizer, lossFunction, ACNet)
             text = f'epoch: {epoch}, trainNum: {trainNum}, ActorLoss: {sum(ACNet.ActorLoss)}, CriticLoss: {sum(ACNet.CriticLoss)}, sumReward: {sumReward}, stepNum: {len(nodes)}'
             saveTrainText(text)
             ACNet.initialize()
