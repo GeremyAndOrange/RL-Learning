@@ -18,7 +18,7 @@ MAP_RESOLUTION = 0.5    # 地图分辨率
 EPOCHS = 1000           # 训练轮数
 EPSILON = 0.99          # epsilon-greedy
 SCAN_RANGE = 31         # 智能体扫描范围
-ALPHA = 1               # 奖励权重
+ALPHA = 2               # 奖励权重
 
 # enumeration value
 COLLISION = 255
@@ -96,9 +96,10 @@ class ACNetWork(torch.nn.Module):
         ActorLayer = [
             torch.nn.Linear(16, 64),
             torch.nn.LeakyReLU(0.1),
-            torch.nn.Linear(64, 16),
+            torch.nn.Linear(64, 180),
             torch.nn.LeakyReLU(0.1),
-            torch.nn.Linear(16, 1)
+            torch.nn.Linear(180, 360),
+            torch.nn.Softmax(dim=1)
         ]
         CriticLayer = [
             torch.nn.Linear(32, 8),
@@ -135,13 +136,13 @@ class ACNetWork(torch.nn.Module):
 
 # training
 def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimizer, lossFunction, ACNet):
-    for param in ACNet.ActorModel.parameters():
-        if param.grad is not None:
-            print(f" gradient = {param.grad}")
+    # for param in ACNet.ActorModel.parameters():
+    #     if param.grad is not None:
+    #         print(f" gradient = {param.grad}")
     # train
     Qvalue = ACNet.CriticForward(state, action)
     with torch.no_grad():
-        nextAction = GetAction(nextState, ACNet)
+        nextAction, _ = GetAction(nextState, ACNet)
         nextQvalue = ACNet.CriticForward(nextState, nextAction)
         target = reward + 0.9 * nextQvalue * (1 - over)
     CriticLoss = lossFunction(Qvalue, target)
@@ -152,9 +153,9 @@ def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimize
     CriticOptimizer.step()
 
     # 更新演员网络的损失
-    actionPre = GetAction(state, ACNet)
+    actionPre, logProb = GetAction(state, ACNet)
     Qvalue = ACNet.CriticForward(state, actionPre)
-    ActorLoss = -Qvalue.mean()
+    ActorLoss = -(logProb * Qvalue).mean()
     ACNet.ActorLoss.append(ActorLoss.item())
     # 更新演员网络
     ActorOptimizer.zero_grad()
@@ -181,12 +182,12 @@ def GetState(nodes, mapInfo, ACNet):
 
 # get action
 def GetAction(state, ACNet):
-    # actionProb = ACNet.ActorForward(state)
-    # distribution = torch.distributions.Categorical(actionProb)
-    # action = distribution.sample().float().unsqueeze(0)
-    action = ACNet.ActorForward(state)
+    actionProb = ACNet.ActorForward(state)
+    distribution = torch.distributions.Categorical(logits=actionProb)
+    action = distribution.sample().float().unsqueeze(0)
+    # action = ACNet.ActorForward(state)
     # action是一个一维张量,长度为1
-    return action
+    return action, distribution.log_prob(action)
 
 # get reward
 def GetReward(nodes, mapInfo):
@@ -198,7 +199,7 @@ def GetReward(nodes, mapInfo):
         oldDistance = numpy.linalg.norm(numpy.array(nodes[-2].point) - numpy.array(END))
         newDistance = numpy.linalg.norm(numpy.array(nodes[-1].point) - numpy.array(END))
         moveRate = (oldDistance - newDistance) / STEP_SIZE
-        reward = ALPHA * moveRate + 0.5
+        reward = ALPHA * moveRate + 0.05
 
     return reward
 
@@ -228,7 +229,7 @@ def Step(nodes, action, mapInfo):
 def ReinforcementLearning(device):
     ACNet = ACNetWork(device)
     ACNet.to(device)
-    ActorOptimizer = torch.optim.Adam(list(ACNet.StateFeatureModel.parameters()) + list(ACNet.ActorModel.parameters()),lr=0.001)
+    ActorOptimizer = torch.optim.Adam(ACNet.ActorModel.parameters(),lr=0.001)
     CriticOptimizer = torch.optim.Adam(list(ACNet.StateFeatureModel.parameters()) + list(ACNet.ActionFeatureModel.parameters()) + list(ACNet.CriticModel.parameters()),lr=0.001)
     lossFunction = torch.nn.MSELoss()
 
@@ -244,7 +245,7 @@ def ReinforcementLearning(device):
             over = False
             sumReward = 0
             while not over:
-                action = GetAction(state, ACNet)
+                action, _ = GetAction(state, ACNet)
                 nodes, reward, over = Step(nodes, action, mapInfo)
                 nextState = GetState(nodes, mapInfo, ACNet)
                 state = nextState
@@ -266,7 +267,7 @@ def Play(mapInfo, ACNet):
     sumReward = 0
     for nodeNumber in range(MAX_NODES):
         state = GetState(nodes, mapInfo, ACNet)
-        action = GetAction(state, ACNet)
+        action, _ = GetAction(state, ACNet)
         nodes, reward, over = Step(nodes, action, mapInfo)
         sumReward += reward
         if over:
