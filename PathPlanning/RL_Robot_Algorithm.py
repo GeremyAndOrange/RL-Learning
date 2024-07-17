@@ -6,7 +6,7 @@ import torch.nn
 import matplotlib.pyplot
 
 # parameters
-START = [5, 5]          # 起点坐标
+START = [0, 0]          # 起点坐标
 END = [45, 45]          # 终点坐标
 MAX_NODES = 200         # 节点最大数量
 STEP_SIZE = 0.5         # 步长
