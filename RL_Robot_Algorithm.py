@@ -15,10 +15,10 @@ OBSTACLE_RADIUS = 4     # 障碍物半径
 MAP_LENGTH = 50         # 地图长度
 MAP_HEIGHT = 50         # 地图宽度
 MAP_RESOLUTION = 0.5    # 地图分辨率
-EPOCHS = 1000           # 训练轮数
+EPOCHS = 100            # 训练轮数
 EPSILON = 0.99          # epsilon-greedy
 SCAN_RANGE = 31         # 智能体扫描范围
-ALPHA = 2               # 奖励权重
+ALPHA = 1               # 奖励权重
 
 # enumeration value
 COLLISION = 255
@@ -136,9 +136,9 @@ class ACNetWork(torch.nn.Module):
 
 # training
 def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimizer, lossFunction, ACNet):
-    # for param in ACNet.ActorModel.parameters():
-    #     if param.grad is not None:
-    #         print(f" gradient = {param.grad}")
+    for param in ACNet.ActorModel.parameters():
+        if param.grad is not None:
+            print(f" gradient = {param.grad}")
     # train
     Qvalue = ACNet.CriticForward(state, action)
     with torch.no_grad():
@@ -229,8 +229,8 @@ def Step(nodes, action, mapInfo):
 def ReinforcementLearning(device):
     ACNet = ACNetWork(device)
     ACNet.to(device)
-    ActorOptimizer = torch.optim.Adam(ACNet.ActorModel.parameters(),lr=0.001)
-    CriticOptimizer = torch.optim.Adam(list(ACNet.StateFeatureModel.parameters()) + list(ACNet.ActionFeatureModel.parameters()) + list(ACNet.CriticModel.parameters()),lr=0.001)
+    ActorOptimizer = torch.optim.Adam(list(ACNet.StateFeatureModel.parameters()) + list(ACNet.ActorModel.parameters()),lr=0.001)
+    CriticOptimizer = torch.optim.Adam(list(ACNet.ActionFeatureModel.parameters()) + list(ACNet.CriticModel.parameters()),lr=0.001)
     lossFunction = torch.nn.MSELoss()
 
     mapInfo = GenerateGridMap()
@@ -239,7 +239,7 @@ def ReinforcementLearning(device):
     
     for epoch in range(EPOCHS):
         # on-policy training
-        for trainNum in range(100):
+        for trainNum in range(1000):
             nodes = [Node(START)]
             state = GetState(nodes, mapInfo, ACNet)
             over = False
@@ -286,7 +286,7 @@ def Play(mapInfo, ACNet):
 # save train text
 def saveTrainText(str):
     with open('train.txt', 'a') as f:
-        f.write(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") + '\n')
+        f.write(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' ')
         f.write(str + '\n')
     print(str)
 
