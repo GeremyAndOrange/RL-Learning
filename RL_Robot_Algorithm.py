@@ -21,8 +21,8 @@ SCAN_RANGE = 31         # 智能体扫描范围
 ALPHA = 1               # 奖励权重
 
 # enumeration value
-COLLISION = 255
-ROBOT = 127
+COLLISION = 1
+ROBOT = 255
 OUT_MAP = -1
 
 class Node:
@@ -76,7 +76,6 @@ class ACNetWork(torch.nn.Module):
     def __init__(self, device) -> None:
         super(ACNetWork,self).__init__()
         StateFeatureLayer = [
-            # input 1*32*32 output 16
             torch.nn.Conv2d(1, 16, 5, 1, 1),
             torch.nn.MaxPool2d(2),
             torch.nn.Conv2d(16, 32, 5, 1, 1),
@@ -84,22 +83,19 @@ class ACNetWork(torch.nn.Module):
             torch.nn.Conv2d(32, 32, 5, 1, 1),
             torch.nn.MaxPool2d(2),
             torch.nn.Flatten(),
-            torch.nn.Linear(128, 16)
+            torch.nn.Linear(128, 20)
         ]
         ActionFeatureLayer = [
-            # input 1 output 16
             torch.nn.Linear(1, 32),
             torch.nn.LeakyReLU(0.1),
-            torch.nn.Linear(32, 16)
+            torch.nn.Linear(32, 12)
         ]
 
         ActorLayer = [
-            torch.nn.Linear(16, 64),
-            torch.nn.LeakyReLU(0.1),
-            torch.nn.Linear(64, 180),
+            torch.nn.Linear(20, 180),
             torch.nn.LeakyReLU(0.1),
             torch.nn.Linear(180, 360),
-            torch.nn.Softmax(dim=1)
+            torch.nn.LeakyReLU(-1)
         ]
         CriticLayer = [
             torch.nn.Linear(32, 8),
@@ -136,9 +132,6 @@ class ACNetWork(torch.nn.Module):
 
 # training
 def Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimizer, lossFunction, ACNet):
-    for param in ACNet.ActorModel.parameters():
-        if param.grad is not None:
-            print(f" gradient = {param.grad}")
     # train
     Qvalue = ACNet.CriticForward(state, action)
     with torch.no_grad():
@@ -182,10 +175,11 @@ def GetState(nodes, mapInfo, ACNet):
 
 # get action
 def GetAction(state, ACNet):
-    actionProb = ACNet.ActorForward(state)
-    distribution = torch.distributions.Categorical(logits=actionProb)
+    actionValue = ACNet.ActorForward(state)
+    sumValue = actionValue.sum(-1, keepdim=True)
+    actionProbs = actionValue / sumValue
+    distribution = torch.distributions.Categorical(logits=actionProbs)
     action = distribution.sample().float().unsqueeze(0)
-    # action = ACNet.ActorForward(state)
     # action是一个一维张量,长度为1
     return action, distribution.log_prob(action)
 
@@ -229,17 +223,14 @@ def Step(nodes, action, mapInfo):
 def ReinforcementLearning(device):
     ACNet = ACNetWork(device)
     ACNet.to(device)
-    ActorOptimizer = torch.optim.Adam(list(ACNet.StateFeatureModel.parameters()) + list(ACNet.ActorModel.parameters()),lr=0.001)
-    CriticOptimizer = torch.optim.Adam(list(ACNet.ActionFeatureModel.parameters()) + list(ACNet.CriticModel.parameters()),lr=0.001)
+    ActorOptimizer = torch.optim.Adam(list(ACNet.StateFeatureModel.parameters()) + list(ACNet.ActorModel.parameters()),lr=0.003)
+    CriticOptimizer = torch.optim.Adam(list(ACNet.ActionFeatureModel.parameters()) + list(ACNet.CriticModel.parameters()),lr=0.003)
     lossFunction = torch.nn.MSELoss()
 
     mapInfo = GenerateGridMap()
-    # numpy.savetxt('map.txt', mapInfo)
-    # mapInfo = numpy.loadtxt('map.txt')
-    
     for epoch in range(EPOCHS):
         # on-policy training
-        for trainNum in range(1000):
+        for trainNum in range(200):
             nodes = [Node(START)]
             state = GetState(nodes, mapInfo, ACNet)
             over = False
@@ -323,7 +314,7 @@ def DrawPath(nodes, mapInfo):
 
 # main
 def main():
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device('cpu')
     ReinforcementLearning(device)
 
 if __name__ == '__main__':
