@@ -239,10 +239,10 @@ def ReinforcementLearning(device):
                 action, _ = GetAction(state, ACNet)
                 nodes, reward, over = Step(nodes, action, mapInfo)
                 nextState = GetState(nodes, mapInfo, ACNet)
-                state = nextState
-                sumReward += reward
                 # state:张量, action:张量, reward:浮点数, nextState:张量, over:布尔值
                 Train(state, action, reward, nextState, over, ActorOptimizer, CriticOptimizer, lossFunction, ACNet)
+                state = nextState
+                sumReward += reward
             text = f'epoch: {epoch}, trainNum: {trainNum}, ActorLoss: {sum(ACNet.ActorLoss)}, CriticLoss: {sum(ACNet.CriticLoss)}, sumReward: {sumReward}, stepNum: {len(nodes)}'
             saveTrainText(text)
             ACNet.initialize()
