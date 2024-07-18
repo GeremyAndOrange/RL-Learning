@@ -4,32 +4,35 @@ import torch
 import random
 import matplotlib.pyplot
 
+EPSILON = 0.999
+
 class DeePQNetwork(torch.nn.Module):
-    def __init__(self, device) -> None:
+    def __init__(self, device, epsilon) -> None:
         super(DeePQNetwork,self).__init__()
         self.device = device
         self.initialize()
 
         advantageNetWork = torch.nn.Sequential(
-            torch.nn.Linear(4, 256),
+            torch.nn.Linear(4, 128),
             torch.nn.ReLU(),
-            torch.nn.Linear(256, 64),
+            torch.nn.Linear(128, 128),
             torch.nn.ReLU(),
-            torch.nn.Linear(64, 2)
+            torch.nn.Linear(128, 2)
         )
         self.advantageNetWork = advantageNetWork.to(self.device)
 
         valueNetWork = torch.nn.Sequential(
-            torch.nn.Linear(4, 256),
+            torch.nn.Linear(4, 128),
             torch.nn.ReLU(),
-            torch.nn.Linear(256, 64),
+            torch.nn.Linear(128, 128),
             torch.nn.ReLU(),
-            torch.nn.Linear(64, 1)
+            torch.nn.Linear(128, 1)
         )
         self.valueNetWork = valueNetWork.to(self.device)
 
         self.lossFunction = torch.nn.MSELoss()
-        self.optimizer = torch.optim.Adam(list(self.advantageNetWork.parameters()) + list(self.valueNetWork.parameters()), lr=0.005)
+        self.optimizer = torch.optim.Adam(list(self.advantageNetWork.parameters()) + list(self.valueNetWork.parameters()), lr=0.003)
+        self.epsilon = epsilon
 
     def initialize(self):
         self.Reward = []
@@ -47,8 +50,8 @@ class DeePQNetwork(torch.nn.Module):
     def loadModel(self, path):
         self.load_state_dict(torch.load(path))
     
-    def GetAction(self, state, epsilon):
-        if numpy.random.random() < epsilon:
+    def GetAction(self, state):
+        if numpy.random.random() < self.epsilon:
             chooseAction = numpy.random.randint(0, 2)
         else:
             state = torch.tensor(state, dtype=torch.float32).to(self.device)
@@ -76,7 +79,7 @@ class DeePQNetwork(torch.nn.Module):
         self.Loss.append(loss.item())
 
 def DQN():
-    DeePQNet = DeePQNetwork("cuda")
+    DeePQNet = DeePQNetwork("cuda", EPSILON)
     environment = gym.make('CartPole-v1', render_mode="rgb_array")
     dataPool = []
     
@@ -84,14 +87,15 @@ def DQN():
         state = environment.reset()[0]
         over = False
         while not over:
-            action = DeePQNet.GetAction(state, 1)
+            action = DeePQNet.GetAction(state)
             state_, reward, truncated, terminated, info = environment.step(action)
             over = truncated or terminated
             dataPool.append((state, action, reward, state_, over))
             state = state_
 
     record = []
-    for epoch in range(10000):
+    for epoch in range(6000):
+        DeePQNet.epsilon = max(DeePQNet.epsilon * 0.9975, 0.01)
         DeePQNet.DQNtrain(dataPool)
         record.append((epoch, play(environment, DeePQNet, dataPool, epoch)))
     
@@ -101,7 +105,7 @@ def play(environment, DeePQNet, dataPool, epoch):
     state = environment.reset()[0]
     over, stepNumber = False, 0
     while not over:
-        action = DeePQNet.GetAction(state, 0)
+        action = DeePQNet.GetAction(state)
         state_, reward, truncated, terminated, info = environment.step(action)
         over = truncated or (sum(DeePQNet.Reward) >= 999)
         dataPool.append((state, action, reward, state_, over))
@@ -122,7 +126,9 @@ def play(environment, DeePQNet, dataPool, epoch):
 def Draw(record):
     x = [coord[0] for coord in record]
     y = [coord[1] for coord in record]
-    matplotlib.pyplot.plot(x, y, 'k-')
+    matplotlib.pyplot.plot(x, y, 'o')
     matplotlib.pyplot.show()
+
+    print(sum(y)/len(y), max(y), min(y))
 
 DQN()
