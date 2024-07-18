@@ -10,16 +10,16 @@ class DeePQNetwork(torch.nn.Module):
         self.initialize()
 
         netWork = torch.nn.Sequential(
-            torch.nn.Linear(4, 128),
+            torch.nn.Linear(4, 256),
             torch.nn.ReLU(),
-            torch.nn.Linear(128, 64),
+            torch.nn.Linear(256, 64),
             torch.nn.ReLU(),
             torch.nn.Linear(64, 2)
         )
         self.netWork = netWork.to(self.device)
 
         self.lossFunction = torch.nn.MSELoss()
-        self.optimizer = torch.optim.Adam(self.netWork.parameters(), lr=0.002)
+        self.optimizer = torch.optim.Adam(self.netWork.parameters(), lr=0.005)
 
     def initialize(self):
         self.Reward = []
@@ -44,7 +44,7 @@ class DeePQNetwork(torch.nn.Module):
         return chooseAction
     
     def DQNtrain(self, dataPool):
-        chooseData = random.sample(dataPool, 100)
+        chooseData = random.sample(dataPool, 200)
         state = torch.tensor([data[0] for data in chooseData], dtype=torch.float32).to(self.device)
         action = torch.tensor([data[1] for data in chooseData], dtype=torch.int64).to(self.device)
         reward = torch.tensor([data[2] for data in chooseData], dtype=torch.float32).to(self.device)
@@ -71,16 +71,16 @@ def DQN():
         state = environment.reset()[0]
         over = False
         while not over:
-            action = DeePQNet.GetAction(state, 0.1)
+            action = DeePQNet.GetAction(state, 1)
             state_, reward, truncated, terminated, info = environment.step(action)
-            over = terminated or truncated
+            over = truncated
             dataPool.append((state, action, reward, state_, over))
             state = state_
 
     for epoch in range(10000):
         DeePQNet.DQNtrain(dataPool)
         if epoch % 100 == 0:
-            testEnvironment = gym.make('CartPole-v1', render_mode="rgb_array")
+            testEnvironment = gym.make('CartPole-v1', render_mode="human")
         else:
             testEnvironment = gym.make('CartPole-v1', render_mode="rgb_array")
         play(testEnvironment, DeePQNet, dataPool, epoch)
@@ -92,7 +92,7 @@ def play(environment, DeePQNet, dataPool, epoch):
     while not over:
         action = DeePQNet.GetAction(state, 0)
         state_, reward, truncated, terminated, info = environment.step(action)
-        over = terminated or truncated
+        over = truncated or (sum(DeePQNet.Reward) >= 1000)
         dataPool.append((state, action, reward, state_, over))
 
         state = state_
