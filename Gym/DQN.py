@@ -2,6 +2,7 @@ import gym
 import numpy
 import torch
 import random
+import matplotlib.pyplot
 
 class DeePQNetwork(torch.nn.Module):
     def __init__(self, device) -> None:
@@ -9,24 +10,36 @@ class DeePQNetwork(torch.nn.Module):
         self.device = device
         self.initialize()
 
-        netWork = torch.nn.Sequential(
+        advantageNetWork = torch.nn.Sequential(
             torch.nn.Linear(4, 256),
             torch.nn.ReLU(),
             torch.nn.Linear(256, 64),
             torch.nn.ReLU(),
             torch.nn.Linear(64, 2)
         )
-        self.netWork = netWork.to(self.device)
+        self.advantageNetWork = advantageNetWork.to(self.device)
+
+        valueNetWork = torch.nn.Sequential(
+            torch.nn.Linear(4, 256),
+            torch.nn.ReLU(),
+            torch.nn.Linear(256, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 1)
+        )
+        self.valueNetWork = valueNetWork.to(self.device)
 
         self.lossFunction = torch.nn.MSELoss()
-        self.optimizer = torch.optim.Adam(self.netWork.parameters(), lr=0.005)
+        self.optimizer = torch.optim.Adam(list(self.advantageNetWork.parameters()) + list(self.valueNetWork.parameters()), lr=0.005)
 
     def initialize(self):
         self.Reward = []
         self.Loss = []
     
     def forward(self, state):
-        return self.netWork(state)
+        advantage = self.advantageNetWork(state)
+        value = self.valueNetWork(state)
+        QValue = value + advantage - advantage.mean()
+        return QValue
     
     def saveModel(self, path):
         torch.save(self.state_dict(), path)
@@ -77,14 +90,12 @@ def DQN():
             dataPool.append((state, action, reward, state_, over))
             state = state_
 
+    record = []
     for epoch in range(10000):
         DeePQNet.DQNtrain(dataPool)
-        if epoch % 100 == 0:
-            testEnvironment = gym.make('CartPole-v1', render_mode="human")
-        else:
-            testEnvironment = gym.make('CartPole-v1', render_mode="rgb_array")
-        play(testEnvironment, DeePQNet, dataPool, epoch)
-            
+        record.append((epoch, play(environment, DeePQNet, dataPool, epoch)))
+    
+    Draw(record)
 
 def play(environment, DeePQNet, dataPool, epoch):
     state = environment.reset()[0]
@@ -103,6 +114,15 @@ def play(environment, DeePQNet, dataPool, epoch):
         dataPool.pop(0)
 
     print(f'Epoch: {epoch}, Loss: {sum(DeePQNet.Loss)}, sumReward: {sum(DeePQNet.Reward)}')
+    sumReaward = sum(DeePQNet.Reward)
     DeePQNet.initialize()
+
+    return sumReaward
+
+def Draw(record):
+    x = [coord[0] for coord in record]
+    y = [coord[1] for coord in record]
+    matplotlib.pyplot.plot(x, y, 'k-')
+    matplotlib.pyplot.show()
 
 DQN()
