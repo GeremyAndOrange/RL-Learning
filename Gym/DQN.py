@@ -86,7 +86,7 @@ def DQN():
         while not over:
             action = DeePQNet.GetAction(state, 1)
             state_, reward, truncated, terminated, info = environment.step(action)
-            over = truncated
+            over = truncated or terminated
             dataPool.append((state, action, reward, state_, over))
             state = state_
 
@@ -103,7 +103,7 @@ def play(environment, DeePQNet, dataPool, epoch):
     while not over:
         action = DeePQNet.GetAction(state, 0)
         state_, reward, truncated, terminated, info = environment.step(action)
-        over = truncated or (sum(DeePQNet.Reward) >= 1000)
+        over = truncated or (sum(DeePQNet.Reward) >= 999)
         dataPool.append((state, action, reward, state_, over))
 
         state = state_
