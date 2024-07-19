@@ -6,9 +6,9 @@ import matplotlib.pyplot
 
 EPSILON = 0.999
 
-class DeePQNetwork(torch.nn.Module):
+class DoubleDQNetwork(torch.nn.Module):
     def __init__(self, device, epsilon) -> None:
-        super(DeePQNetwork,self).__init__()
+        super(DoubleDQNetwork,self).__init__()
         self.device = device
         self.initialize()
 
@@ -30,6 +30,24 @@ class DeePQNetwork(torch.nn.Module):
         )
         self.valueNetWork = valueNetWork.to(self.device)
 
+        targetAdvantageNetWork = torch.nn.Sequential(
+            torch.nn.Linear(4, 256),
+            torch.nn.ReLU(),
+            torch.nn.Linear(256, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 2)
+        )
+        self.targetAdvantageNetWork = targetAdvantageNetWork.to(self.device)
+
+        targetValueNetWork = torch.nn.Sequential(
+            torch.nn.Linear(4, 256),
+            torch.nn.ReLU(),
+            torch.nn.Linear(256, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 1)
+        )
+        self.targetValueNetWork = targetValueNetWork.to(self.device)
+
         self.lossFunction = torch.nn.MSELoss()
         self.optimizer = torch.optim.Adam(list(self.advantageNetWork.parameters()) + list(self.valueNetWork.parameters()), lr=0.001)
         self.epsilon = epsilon
@@ -38,11 +56,21 @@ class DeePQNetwork(torch.nn.Module):
         self.Reward = []
         self.Loss = []
     
-    def forward(self, state):
+    def UpdateTargetModel(self):
+        self.targetAdvantageNetWork.load_state_dict(self.advantageNetWork.state_dict())
+        self.targetValueNetWork.load_state_dict(self.valueNetWork.state_dict())
+
+    def DQNforward(self, state):
         advantage = self.advantageNetWork(state)
         value = self.valueNetWork(state)
         QValue = value + advantage - advantage.mean()
         return QValue
+    
+    def targetDQNforward(self, state):
+        advantage = self.targetAdvantageNetWork(state)
+        value = self.targetValueNetWork(state)
+        TargetQValue = value + advantage - advantage.mean()
+        return TargetQValue
     
     def saveModel(self, path):
         torch.save(self.state_dict(), path)
@@ -55,11 +83,11 @@ class DeePQNetwork(torch.nn.Module):
             chooseAction = numpy.random.randint(0, 2)
         else:
             state = torch.tensor(state, dtype=torch.float32).to(self.device)
-            action = self.forward(state)
+            action = self.DQNforward(state)
             chooseAction = torch.argmax(action).item()
         return chooseAction
     
-    def DQNtrain(self, dataPool):
+    def DQNtrain(self, dataPool, epoch):
         chosenData = random.sample(dataPool, 200)
         state = torch.tensor([data[0] for data in chosenData], dtype=torch.float32).to(self.device)
         action = torch.tensor([data[1] for data in chosenData], dtype=torch.int64).to(self.device)
@@ -67,9 +95,10 @@ class DeePQNetwork(torch.nn.Module):
         state_ = torch.tensor([data[3] for data in chosenData], dtype=torch.float32).to(self.device)
         over = torch.tensor([data[4] for data in chosenData], dtype=torch.float32).to(self.device)
 
-        QValue = self.forward(state).gather(1, action.unsqueeze(-1)).reshape(1,-1).squeeze(0)
+        QValue = self.DQNforward(state).gather(1, action.unsqueeze(-1)).reshape(1,-1).squeeze(0)
         with torch.no_grad():
-            QValue_ = self.forward(state_).max(dim=1)[0]
+            action_ = self.DQNforward(state_).argmax(dim=1)
+            QValue_ = self.targetDQNforward(state_).gather(1, action_.unsqueeze(-1)).reshape(1,-1).squeeze(0)
             Target = reward + 0.99 * QValue_ * (1 - over)
         loss = self.lossFunction(QValue, Target)
 
@@ -78,8 +107,11 @@ class DeePQNetwork(torch.nn.Module):
         self.optimizer.step()
         self.Loss.append(loss.item())
 
-def DQN():
-    DeePQNet = DeePQNetwork("cuda", EPSILON)
+        if epoch % 6 == 0:
+            self.UpdateTargetModel()
+
+def DoubleDQN():
+    DoubleDQNet = DoubleDQNetwork("cuda", EPSILON)
     environment = gym.make('CartPole-v1', render_mode="rgb_array")
     dataPool = []
     
@@ -87,7 +119,7 @@ def DQN():
         state = environment.reset()[0]
         over = False
         while not over:
-            action = DeePQNet.GetAction(state)
+            action = DoubleDQNet.GetAction(state)
             state_, reward, truncated, terminated, info = environment.step(action)
             over = truncated or terminated
             dataPool.append((state, action, reward, state_, over))
@@ -95,31 +127,32 @@ def DQN():
 
     record = []
     for epoch in range(8000):
-        DeePQNet.epsilon = max(DeePQNet.epsilon * 0.997, 0.01)
-        DeePQNet.DQNtrain(dataPool)
-        record.append((epoch, play(environment, DeePQNet, dataPool, epoch)))
+        DoubleDQNet.epsilon = max(DoubleDQNet.epsilon * 0.9975, 0.1)
+        DoubleDQNet.DQNtrain(dataPool, epoch)
+        record.append((epoch, play(environment, DoubleDQNet, dataPool, epoch)))
     
     Draw(record)
 
-def play(environment, DeePQNet, dataPool, epoch):
+def play(environment, DoubleDQNet, dataPool, epoch):
     state = environment.reset()[0]
     over, stepNumber = False, 0
     while not over:
-        action = DeePQNet.GetAction(state)
+        action = DoubleDQNet.GetAction(state)
         state_, reward, truncated, terminated, info = environment.step(action)
-        over = truncated or (sum(DeePQNet.Reward) >= 999)
+        over = truncated or (sum(DoubleDQNet.Reward) >= 999)
+        reward = reward if not truncated else -10
         dataPool.append((state, action, reward, state_, over))
 
         state = state_
-        DeePQNet.Reward.append(reward)
+        DoubleDQNet.Reward.append(reward)
         stepNumber += 1
 
     while len(dataPool) > 10000:
         dataPool.pop(0)
 
-    print(f'Epoch: {epoch}, Loss: {sum(DeePQNet.Loss)}, sumReward: {sum(DeePQNet.Reward)}')
-    sumReaward = sum(DeePQNet.Reward)
-    DeePQNet.initialize()
+    print(f'Epoch: {epoch}, Loss: {sum(DoubleDQNet.Loss)}, sumReward: {sum(DoubleDQNet.Reward)}')
+    sumReaward = sum(DoubleDQNet.Reward)
+    DoubleDQNet.initialize()
 
     return sumReaward
 
@@ -131,4 +164,4 @@ def Draw(record):
 
     print(sum(y)/len(y), max(y), min(y))
 
-DQN()
+DoubleDQN()
