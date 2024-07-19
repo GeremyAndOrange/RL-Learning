@@ -13,25 +13,25 @@ class DeePQNetwork(torch.nn.Module):
         self.initialize()
 
         advantageNetWork = torch.nn.Sequential(
-            torch.nn.Linear(4, 128),
+            torch.nn.Linear(4, 256),
             torch.nn.ReLU(),
-            torch.nn.Linear(128, 128),
+            torch.nn.Linear(256, 64),
             torch.nn.ReLU(),
-            torch.nn.Linear(128, 2)
+            torch.nn.Linear(64, 2)
         )
         self.advantageNetWork = advantageNetWork.to(self.device)
 
         valueNetWork = torch.nn.Sequential(
-            torch.nn.Linear(4, 128),
+            torch.nn.Linear(4, 256),
             torch.nn.ReLU(),
-            torch.nn.Linear(128, 128),
+            torch.nn.Linear(256, 64),
             torch.nn.ReLU(),
-            torch.nn.Linear(128, 1)
+            torch.nn.Linear(64, 1)
         )
         self.valueNetWork = valueNetWork.to(self.device)
 
         self.lossFunction = torch.nn.MSELoss()
-        self.optimizer = torch.optim.Adam(list(self.advantageNetWork.parameters()) + list(self.valueNetWork.parameters()), lr=0.003)
+        self.optimizer = torch.optim.Adam(list(self.advantageNetWork.parameters()) + list(self.valueNetWork.parameters()), lr=0.001)
         self.epsilon = epsilon
 
     def initialize(self):
@@ -70,7 +70,7 @@ class DeePQNetwork(torch.nn.Module):
         QValue = self.forward(state).gather(1, action.unsqueeze(-1)).reshape(1,-1).squeeze(0)
         with torch.no_grad():
             QValue_ = self.forward(state_).max(dim=1)[0]
-            Target = reward + 0.9 * QValue_ * (1 - over)
+            Target = reward + 0.99 * QValue_ * (1 - over)
         loss = self.lossFunction(QValue, Target)
 
         self.optimizer.zero_grad()
@@ -94,8 +94,8 @@ def DQN():
             state = state_
 
     record = []
-    for epoch in range(6000):
-        DeePQNet.epsilon = max(DeePQNet.epsilon * 0.9975, 0.01)
+    for epoch in range(8000):
+        DeePQNet.epsilon = max(DeePQNet.epsilon * 0.997, 0.01)
         DeePQNet.DQNtrain(dataPool)
         record.append((epoch, play(environment, DeePQNet, dataPool, epoch)))
     
