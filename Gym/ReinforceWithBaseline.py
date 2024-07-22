@@ -19,8 +19,18 @@ class ReinforceNetWork(torch.nn.Module):
         )
         self.policyNetWork = policyNetWork.to(self.device)
 
+        valueNetWork = torch.nn.Sequential(
+            torch.nn.Linear(4, 256),
+            torch.nn.ReLU(),
+            torch.nn.Linear(256, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 1)
+        )
+        self.valueNetWork = valueNetWork.to(self.device)
+
         self.lossFunction = torch.nn.MSELoss()
         self.optimizer = torch.optim.Adam(self.policyNetWork.parameters(), lr=0.001)
+        self.valueOptimizer = torch.optim.Adam(self.valueNetWork.parameters(), lr=0.001)
     
     def initialize(self):
         self.Reward = []
@@ -34,6 +44,9 @@ class ReinforceNetWork(torch.nn.Module):
         logProb = distribution.log_prob(action)
         return numpy.array(action), logProb
     
+    def valueForward(self, state):
+        return self.valueNetWork(state)
+
     def saveModel(self, path):
         torch.save(self.state_dict(), path)
 
@@ -41,10 +54,24 @@ class ReinforceNetWork(torch.nn.Module):
         self.load_state_dict(torch.load(path))
 
     def ReinforceTrain(self):
-        discountReturn, loss = 0, 0
-        for reward, logProb in reversed(self.dataStore):
+        discountReturn, loss, valueLoss = 0, 0, 0
+        futureReturn = []
+        for reward, *_ in reversed(self.dataStore):
             discountReturn = reward + discountReturn * 0.99
-            loss += -discountReturn * logProb
+            futureReturn.insert(0, discountReturn)
+
+        stateList = [item[2]  for item in self.dataStore]
+        value = self.valueForward(torch.tensor(numpy.array(stateList), dtype=torch.float).to(self.device)).reshape(-1)
+        returns = torch.tensor(numpy.array(futureReturn), dtype=torch.float).to(self.device)
+        valueLoss = self.lossFunction(value, returns)
+        self.valueOptimizer.zero_grad()
+        valueLoss.backward()
+        self.valueOptimizer.step()
+
+        for reward, logProb, state in reversed(self.dataStore):
+            discountReturn = reward + discountReturn * 0.99
+            value = self.valueForward(torch.tensor(state, dtype=torch.float).to(self.device))
+            loss += -logProb * (discountReturn - value)
         
         loss = loss/len(self.dataStore)
         self.optimizer.zero_grad()
@@ -64,7 +91,7 @@ def Reinforce():
             action, logProb = ReinforceNet.forward(torch.tensor(state, dtype=torch.float).to(ReinforceNet.device))
             state_, reward, truncated, terminated, info = environment.step(action)
             over = terminated or truncated
-            ReinforceNet.dataStore.append((reward, logProb))
+            ReinforceNet.dataStore.append((reward, logProb, state))
             state = state_
             ReinforceNet.Reward.append(reward)
         ReinforceNet.ReinforceTrain()

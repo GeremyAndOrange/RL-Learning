@@ -68,9 +68,9 @@ class DeePQNetwork(torch.nn.Module):
         over = torch.tensor([data[4] for data in chosenData], dtype=torch.float32).to(self.device)
 
         QValue = self.forward(state).gather(1, action.unsqueeze(-1)).reshape(1,-1).squeeze(0)
-        with torch.no_grad():
-            QValue_ = self.forward(state_).max(dim=1)[0]
-            Target = reward + 0.99 * QValue_ * (1 - over)
+
+        QValue_ = self.forward(state_).max(dim=1)[0]
+        Target = reward + 0.99 * QValue_ * (1 - over)
         loss = self.lossFunction(QValue, Target)
 
         self.optimizer.zero_grad()
