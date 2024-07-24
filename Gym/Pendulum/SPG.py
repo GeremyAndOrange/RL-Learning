@@ -84,7 +84,7 @@ class SPGNetWork(torch.nn.Module):
     def actorForward(self, state):
         Mu, Sigma = self.ActorNetWorkMu(state) * 2, self.ActorNetWorkSigma(state) + 1e-5
         distribution = torch.distributions.Normal(Mu, Sigma)
-        action = distribution.sample()
+        action = distribution.sample().clamp(-2, 2)
         return action, distribution.log_prob(action)
     
     def criticForward(self, state, action):
@@ -98,7 +98,7 @@ class SPGNetWork(torch.nn.Module):
     def TargetActorForward(self, state):
         Mu, Sigma = self.TargetActorNetWorkMu(state) * 2, self.TargetActorNetWorkSigma(state) + 1e-5
         distribution = torch.distributions.Normal(Mu, Sigma)
-        action = distribution.sample()
+        action = distribution.sample().clamp(-2, 2)
         return action
 
     def UpdateTargetNetWork(self, TargetNetWork, NetWork):
@@ -106,7 +106,7 @@ class SPGNetWork(torch.nn.Module):
             targetParam.data.copy_(0.005 * param.data + (1 - 0.005) * targetParam.data)
 
     def SPGTrain(self, dataPool):
-        chosenData = random.sample(dataPool, 64)
+        chosenData = random.sample(dataPool, 200)
         state = torch.tensor(numpy.array([data[0] for data in chosenData]), dtype=torch.float32).reshape(-1, 3).to(self.device)
         action = torch.tensor(numpy.array([data[1] for data in chosenData]), dtype=torch.float32).reshape(-1, 1).to(self.device)
         reward = torch.tensor(numpy.array([data[2] for data in chosenData]), dtype=torch.float32).reshape(-1, 1).to(self.device)
@@ -172,7 +172,7 @@ def play(environment, SPGNet, dataPool, epoch):
         SPGNet.SPGTrain(dataPool)
         SPGNet.reward.append(reward)
     
-    while len(dataPool) > 10000:
+    while len(dataPool) > 100000:
         dataPool.pop(0)
     
     print(f'Epoch: {epoch}, ActorLoss: {sum(SPGNet.actorLoss)}, CriticLoss: {sum(SPGNet.criticLoss)}, sumReward: {sum(SPGNet.reward)}')

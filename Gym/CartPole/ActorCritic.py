@@ -1,8 +1,7 @@
 import gym
 import numpy
 import torch
-import random
-import matplotlib.pyplot
+from torch.utils.tensorboard import SummaryWriter
 
 class ActorCriticNetwork(torch.nn.Module):
     def __init__(self, device) -> None:
@@ -30,7 +29,7 @@ class ActorCriticNetwork(torch.nn.Module):
         self.CriticNetWork = CriticNetWork.to(self.device)
 
         self.lossFunction = torch.nn.MSELoss()
-        self.actorOptimizer = torch.optim.Adam(self.ActorNetWork.parameters(), lr=0.003)
+        self.actorOptimizer = torch.optim.Adam(self.ActorNetWork.parameters(), lr=0.001)
         self.valueOptimizer = torch.optim.Adam(self.CriticNetWork.parameters(), lr=0.003)
 
     def initialize(self):
@@ -39,108 +38,70 @@ class ActorCriticNetwork(torch.nn.Module):
         self.criticLoss = []
     
     def actorForward(self, state):
-        state = torch.tensor(state, dtype=torch.float32).to(self.device)
         actionProb = self.ActorNetWork(state)
         distribution = torch.distributions.Categorical(actionProb)
-        action = distribution.sample()
-        logProb = distribution.log_prob(action).reshape(-1, 1)
-        return numpy.array(action), logProb
+        action = distribution.sample().reshape(-1)
+        logProb = distribution.log_prob(action).reshape(-1)
+        return action, logProb
 
     def criticForward(self, state, action):
-        feature = torch.cat((state, action), dim=1)
+        feature = torch.cat((state, action), dim=0)
         value = self.CriticNetWork(feature)
         return value
     
-    def saveModel(self, path):
-        torch.save(self.ActorNetWork.state_dict(), path)
-        torch.save(self.CriticNetWork.state_dict(), path)
-
-    def loadModel(self, path):
-        self.ActorNetWork.load_state_dict(torch.load(path))
-        self.CriticNetWork.load_state_dict(torch.load(path))
-    
-    def ActorCriticTrain(self, dataPool):
-        chosenData = random.sample(dataPool, 200)
-        state = torch.tensor(numpy.array([data[0] for data in chosenData]), dtype=torch.float32).reshape(-1, 4).to(self.device)
-        action = torch.tensor(numpy.array([data[1] for data in chosenData]), dtype=torch.int64).reshape(-1, 1).to(self.device)
-        reward = torch.tensor(numpy.array([data[2] for data in chosenData]), dtype=torch.float32).reshape(-1, 1).to(self.device)
-        state_ = torch.tensor(numpy.array([data[3] for data in chosenData]), dtype=torch.float32).reshape(-1, 4).to(self.device)
-        over = torch.tensor(numpy.array([data[4] for data in chosenData]), dtype=torch.float32).reshape(-1, 1).to(self.device)
+    def ActorCriticTrain(self, state, action, reward, state_, over, logProb):
+        state = torch.tensor(state, dtype=torch.float32).reshape(-1).to(self.device)
+        reward = torch.tensor(reward, dtype=torch.float32).reshape(-1).to(self.device)
+        state_ = torch.tensor(state_, dtype=torch.float32).reshape(-1).to(self.device)
+        over = torch.tensor(over, dtype=torch.float32).reshape(-1).to(self.device)
 
         QValue = self.criticForward(state, action)
-
         action_, _ = self.actorForward(state_)
-        QValue_ = self.criticForward(state_, torch.tensor(action_, dtype=torch.int64).reshape(-1, 1).to(self.device)).max(dim=1)[0].reshape(-1, 1)
+        QValue_ = self.criticForward(state_, action_.reshape(-1)).max(dim=0)[0].reshape(-1)
         Target = reward + 0.99 * QValue_ * (1 - over)
-        CriticLoss = self.lossFunction(QValue, Target)
 
+        CriticLoss = self.lossFunction(QValue, Target)
         self.valueOptimizer.zero_grad()
         CriticLoss.backward()
         self.valueOptimizer.step()
         self.criticLoss.append(CriticLoss.item())
 
-        actionPre, logProb = self.actorForward(state)
-        QValue = self.criticForward(state, torch.tensor(actionPre, dtype=torch.int64).reshape(-1, 1).to(self.device))
-        ActorLoss = -(logProb * QValue).mean()
-
+        ActorLoss = logProb * (QValue - Target).detach() # 注意正负号区别梯度上升还是梯度下降
         self.actorOptimizer.zero_grad()
         ActorLoss.backward()
         self.actorOptimizer.step()
         self.actorLoss.append(ActorLoss.item())
 
-def ActorCritic():
+def ActorCritic(writer):
     ActorCriticNet = ActorCriticNetwork("cpu")
     environment = gym.make('CartPole-v1', render_mode="rgb_array")
-    dataPool = []
 
-    while len(dataPool) < 200:
-        state = environment.reset()[0]
-        over = False
-        while not over:
-            action, _ = ActorCriticNet.actorForward(state)
-            state_, reward, truncated, terminated, info = environment.step(action)
-            over = truncated or terminated
-            dataPool.append((state, action, reward, state_, over))
-            state = state_
-
-    record = []
     for epoch in range(10000):
-        random.shuffle(dataPool)
-        ActorCriticNet.ActorCriticTrain(dataPool)
-        record.append((epoch, play(environment, ActorCriticNet, dataPool, epoch)))
+        writer.add_scalar('reward-epoch', play(environment, ActorCriticNet, epoch), epoch)
     
-    Draw(record)
+    writer.close()
 
-def play(environment, ActorCriticNet, dataPool, epoch):
+def play(environment, ActorCriticNet, epoch):
     state = environment.reset()[0]
     over = False
     while not over:
-        action, _ = ActorCriticNet.actorForward(state)
-        state_, reward, truncated, terminated, info = environment.step(action)
+        action, logProb = ActorCriticNet.actorForward(torch.tensor(state, dtype=torch.float32).to(ActorCriticNet.device))
+        state_, reward, truncated, terminated, info = environment.step(action.item())
         over = truncated or terminated
-        dataPool.append((state, action, reward, state_, over))
 
+        ActorCriticNet.ActorCriticTrain(state, action, reward, state_, over, logProb)
         state = state_
         ActorCriticNet.reward.append(reward)
-    
-    while len(dataPool) > 10000:
-        dataPool.pop(0)
-    
+
     print(f'Epoch: {epoch}, ActorLoss: {sum(ActorCriticNet.actorLoss)}, CriticLoss: {sum(ActorCriticNet.criticLoss)}, sumReward: {sum(ActorCriticNet.reward)}')
     totalReward = sum(ActorCriticNet.reward)
     ActorCriticNet.initialize()
 
     return totalReward
 
-def Draw(record):
-    x = [coord[0] for coord in record]
-    y = [coord[1] for coord in record]
-    matplotlib.pyplot.plot(x, y, '.')
-    matplotlib.pyplot.xlabel('Epoch')
-    matplotlib.pyplot.ylabel('Sum of Rewards')
-    matplotlib.pyplot.title('Training Performance')
-    matplotlib.pyplot.show()
+def main():
+    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\CartPole-AC')  
+    ActorCritic(writer)
 
-    print(f'Average Reward: {sum(y)/len(y)}, Max Reward: {max(y)}, Min Reward: {min(y)}')
-
-ActorCritic()
+if __name__ == "__main__":
+    main()
