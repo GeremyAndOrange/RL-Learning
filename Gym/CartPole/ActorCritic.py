@@ -19,18 +19,18 @@ class ActorCriticNetwork(torch.nn.Module):
         )
         self.ActorNetWork = ActorNetWork.to(self.device)
 
-        CriticNetWork = torch.nn.Sequential(
-            torch.nn.Linear(5, 256),
+        ValueNetWork = torch.nn.Sequential(
+            torch.nn.Linear(4, 256),
             torch.nn.ReLU(),
             torch.nn.Linear(256, 64),
             torch.nn.ReLU(),
             torch.nn.Linear(64, 1)
         )
-        self.CriticNetWork = CriticNetWork.to(self.device)
+        self.ValueNetWork = ValueNetWork.to(self.device)
 
         self.lossFunction = torch.nn.MSELoss()
-        self.actorOptimizer = torch.optim.Adam(self.ActorNetWork.parameters(), lr=0.001)
-        self.valueOptimizer = torch.optim.Adam(self.CriticNetWork.parameters(), lr=0.003)
+        self.actorOptimizer = torch.optim.Adam(self.ActorNetWork.parameters(), lr=0.0001)
+        self.valueOptimizer = torch.optim.Adam(self.ValueNetWork.parameters(), lr=0.001)
 
     def initialize(self):
         self.reward = []
@@ -44,29 +44,28 @@ class ActorCriticNetwork(torch.nn.Module):
         logProb = distribution.log_prob(action).reshape(-1)
         return action, logProb
 
-    def criticForward(self, state, action):
-        feature = torch.cat((state, action), dim=0)
-        value = self.CriticNetWork(feature)
+    def criticForward(self, state):
+        value = self.ValueNetWork(state)
         return value
     
-    def ActorCriticTrain(self, state, action, reward, state_, over, logProb):
+    def ActorCriticTrain(self, state, reward, state_, over, logProb):
         state = torch.tensor(state, dtype=torch.float32).reshape(-1).to(self.device)
         reward = torch.tensor(reward, dtype=torch.float32).reshape(-1).to(self.device)
         state_ = torch.tensor(state_, dtype=torch.float32).reshape(-1).to(self.device)
         over = torch.tensor(over, dtype=torch.float32).reshape(-1).to(self.device)
 
-        QValue = self.criticForward(state, action)
-        action_, _ = self.actorForward(state_)
-        QValue_ = self.criticForward(state_, action_.reshape(-1)).max(dim=0)[0].reshape(-1)
-        Target = reward + 0.99 * QValue_ * (1 - over)
 
-        CriticLoss = self.lossFunction(QValue, Target)
+        Value = self.criticForward(state)
+        Value_ = self.criticForward(state_)
+        Target = reward + 0.99 * Value_ * (1 - over)
+
+        CriticLoss = self.lossFunction(Value, Target)
         self.valueOptimizer.zero_grad()
         CriticLoss.backward()
         self.valueOptimizer.step()
         self.criticLoss.append(CriticLoss.item())
 
-        ActorLoss = logProb * (QValue - Target).detach() # 注意正负号区别梯度上升还是梯度下降
+        ActorLoss = logProb * (Value - Target).detach() # 注意正负号区别梯度上升还是梯度下降
         self.actorOptimizer.zero_grad()
         ActorLoss.backward()
         self.actorOptimizer.step()
@@ -76,7 +75,7 @@ def ActorCritic(writer):
     ActorCriticNet = ActorCriticNetwork("cpu")
     environment = gym.make('CartPole-v1', render_mode="rgb_array")
 
-    for epoch in range(10000):
+    for epoch in range(4000):
         writer.add_scalar('reward-epoch', play(environment, ActorCriticNet, epoch), epoch)
     
     writer.close()
@@ -89,7 +88,7 @@ def play(environment, ActorCriticNet, epoch):
         state_, reward, truncated, terminated, info = environment.step(action.item())
         over = truncated or terminated
 
-        ActorCriticNet.ActorCriticTrain(state, action, reward, state_, over, logProb)
+        ActorCriticNet.ActorCriticTrain(state, reward, state_, over, logProb)
         state = state_
         ActorCriticNet.reward.append(reward)
 
