@@ -120,14 +120,14 @@ class DQNNetWork():
 
 def main():
     DeepQNet = DQNNetWork("cuda")
-    environment = gym.make('ALE/Tennis-v5', render_mode="rgb_array")
-    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\Tnnies-DQN') 
+    environment = gym.make('Tennis-v0', render_mode="rgb_array")
+    # writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\Tnnies-DQN')
     DeepQNet.getData(environment)
 
     for epoch in range(8000):
         DeepQNet.hyperParameters.epsilon = max(DeepQNet.hyperParameters.epsilon * 0.997, 0.01)
         DeepQNet.DQNtrain()
-        writer.add_scalar('reward-epoch', DeepQNet.play(environment), epoch)###
+        # writer.add_scalar('reward-epoch', DeepQNet.play(environment), epoch)
 
 if __name__ == '__main__':
     main()
