@@ -82,7 +82,7 @@ def SPG(writer):
     SPGNet = SPGNetWork("cuda")
     environment = gym.make('Pendulum-v1', render_mode="rgb_array")
 
-    for epoch in range(4000):
+    for epoch in range(1000):
         writer.add_scalar('reward-epoch', play(environment, SPGNet, epoch), epoch)
     
     writer.close()

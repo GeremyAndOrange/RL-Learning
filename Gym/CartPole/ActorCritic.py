@@ -74,7 +74,7 @@ def ActorCritic(writer):
     ActorCriticNet = ActorCriticNetwork("cpu")
     environment = gym.make('CartPole-v1', render_mode="rgb_array")
 
-    for epoch in range(4000):
+    for epoch in range(8000):
         writer.add_scalar('reward-epoch', play(environment, ActorCriticNet, epoch), epoch)
     
     writer.close()
