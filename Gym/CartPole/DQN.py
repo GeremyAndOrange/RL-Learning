@@ -2,7 +2,7 @@ import gym
 import numpy
 import torch
 import random
-import matplotlib.pyplot
+from torch.utils.tensorboard import SummaryWriter
 
 EPSILON = 0.999
 
@@ -51,21 +51,21 @@ class DeePQNetwork(torch.nn.Module):
         self.load_state_dict(torch.load(path))
     
     def GetAction(self, state):
-        if numpy.random.random() < self.epsilon:
-            chooseAction = numpy.random.randint(0, 2)
+        if random.random() < self.epsilon:
+            chosenAction = random.randint(0, 1)
         else:
             state = torch.tensor(state, dtype=torch.float32).to(self.device)
             action = self.forward(state)
-            chooseAction = torch.argmax(action).item()
-        return chooseAction
+            chosenAction = torch.argmax(action).item()
+        return chosenAction
     
     def DQNtrain(self, dataPool):
         chosenData = random.sample(dataPool, 200)
-        state = torch.tensor([data[0] for data in chosenData], dtype=torch.float32).to(self.device)
-        action = torch.tensor([data[1] for data in chosenData], dtype=torch.int64).to(self.device)
-        reward = torch.tensor([data[2] for data in chosenData], dtype=torch.float32).to(self.device)
-        state_ = torch.tensor([data[3] for data in chosenData], dtype=torch.float32).to(self.device)
-        over = torch.tensor([data[4] for data in chosenData], dtype=torch.float32).to(self.device)
+        state = torch.tensor(numpy.array([data[0] for data in chosenData]), dtype=torch.float32).to(self.device)
+        action = torch.tensor(numpy.array([data[1] for data in chosenData]), dtype=torch.int64).to(self.device)
+        reward = torch.tensor(numpy.array([data[2] for data in chosenData]), dtype=torch.float32).to(self.device)
+        state_ = torch.tensor(numpy.array([data[3] for data in chosenData]), dtype=torch.float32).to(self.device)
+        over = torch.tensor(numpy.array([data[4] for data in chosenData]), dtype=torch.float32).to(self.device)
 
         QValue = self.forward(state).gather(1, action.unsqueeze(-1)).reshape(1,-1).squeeze(0)
 
@@ -78,7 +78,7 @@ class DeePQNetwork(torch.nn.Module):
         self.optimizer.step()
         self.Loss.append(loss.item())
 
-def DQN():
+def DQN(writer):
     DeePQNet = DeePQNetwork("cuda", EPSILON)
     environment = gym.make('CartPole-v1', render_mode="rgb_array")
     dataPool = []
@@ -93,13 +93,12 @@ def DQN():
             dataPool.append((state, action, reward, state_, over))
             state = state_
 
-    record = []
     for epoch in range(8000):
         DeePQNet.epsilon = max(DeePQNet.epsilon * 0.997, 0.01)
         DeePQNet.DQNtrain(dataPool)
-        record.append((epoch, play(environment, DeePQNet, dataPool, epoch)))
+        writer.add_scalar('reward-epoch', play(environment, DeePQNet, dataPool, epoch), epoch)
     
-    Draw(record)
+    writer.close()
 
 def play(environment, DeePQNet, dataPool, epoch):
     state = environment.reset()[0]
@@ -123,12 +122,9 @@ def play(environment, DeePQNet, dataPool, epoch):
 
     return sumReaward
 
-def Draw(record):
-    x = [coord[0] for coord in record]
-    y = [coord[1] for coord in record]
-    matplotlib.pyplot.plot(x, y, 'o')
-    matplotlib.pyplot.show()
+def main():
+    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\CartPole-DQN')  
+    DQN(writer)
 
-    print(sum(y)/len(y), max(y), min(y))
-
-DQN()
+if __name__ == "__main__":
+    main()

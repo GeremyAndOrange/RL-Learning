@@ -1,7 +1,7 @@
 import gym
 import numpy
 import torch
-import matplotlib.pyplot
+from torch.utils.tensorboard import SummaryWriter
 
 class ReinforceNetWork(torch.nn.Module):
     def __init__(self, device) -> None:
@@ -42,7 +42,7 @@ class ReinforceNetWork(torch.nn.Module):
         distribution = torch.distributions.Categorical(actionProbs)
         action = distribution.sample()
         logProb = distribution.log_prob(action)
-        return numpy.array(action), logProb
+        return action, logProb
     
     def valueForward(self, state):
         return self.valueNetWork(state)
@@ -79,37 +79,30 @@ class ReinforceNetWork(torch.nn.Module):
         self.optimizer.step()
         self.Loss.append(loss.item())
 
-def Reinforce():
+def Reinforce(writer):
     ReinforceNet = ReinforceNetWork("cpu")
     environment = gym.make('CartPole-v1', render_mode="rgb_array")
 
-    record = []
     for epoch in range(8000):
         state = environment.reset()[0]
         over = False
         while not over:
             action, logProb = ReinforceNet.forward(torch.tensor(state, dtype=torch.float).to(ReinforceNet.device))
-            state_, reward, truncated, terminated, info = environment.step(action)
+            state_, reward, truncated, terminated, info = environment.step(action.item())
             over = terminated or truncated
             ReinforceNet.dataStore.append((reward, logProb, state))
             state = state_
             ReinforceNet.Reward.append(reward)
         ReinforceNet.ReinforceTrain()
         print(f'Epoch: {epoch}, Loss: {sum(ReinforceNet.Loss)}, sumReward: {sum(ReinforceNet.Reward)}')
-        record.append((epoch, sum(ReinforceNet.Reward)))
+        writer.add_scalar('reward-epoch', sum(ReinforceNet.Reward), epoch)
         ReinforceNet.initialize()
     
-    Draw(record)
+    writer.close()
 
-def Draw(record):
-    x = [coord[0] for coord in record]
-    y = [coord[1] for coord in record]
-    matplotlib.pyplot.plot(x, y, '.')
-    matplotlib.pyplot.xlabel('Epoch')
-    matplotlib.pyplot.ylabel('Sum of Rewards')
-    matplotlib.pyplot.title('Training Performance')
-    matplotlib.pyplot.show()
+def main():
+    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\CartPole-ReinforceWithBaseline')  
+    Reinforce(writer)
 
-    print(f'Average Reward: {sum(y)/len(y)}, Max Reward: {max(y)}, Min Reward: {min(y)}')
-
-Reinforce()
+if __name__ == "__main__":
+    main()

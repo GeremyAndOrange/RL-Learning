@@ -1,8 +1,8 @@
 import gym
-import numpy
 import torch
+import numpy
 import random
-import matplotlib.pyplot
+from torch.utils.tensorboard import SummaryWriter
 
 EPSILON = 0.999
 
@@ -79,8 +79,8 @@ class DoubleDQNetwork(torch.nn.Module):
         self.load_state_dict(torch.load(path))
     
     def GetAction(self, state):
-        if numpy.random.random() < self.epsilon:
-            chooseAction = numpy.random.randint(0, 2)
+        if random.random() < self.epsilon:
+            chooseAction = random.randint(0, 1)
         else:
             state = torch.tensor(state, dtype=torch.float32).to(self.device)
             action = self.DQNforward(state)
@@ -89,11 +89,11 @@ class DoubleDQNetwork(torch.nn.Module):
     
     def DQNtrain(self, dataPool, epoch):
         chosenData = random.sample(dataPool, 200)
-        state = torch.tensor([data[0] for data in chosenData], dtype=torch.float32).to(self.device)
-        action = torch.tensor([data[1] for data in chosenData], dtype=torch.int64).to(self.device)
-        reward = torch.tensor([data[2] for data in chosenData], dtype=torch.float32).to(self.device)
-        state_ = torch.tensor([data[3] for data in chosenData], dtype=torch.float32).to(self.device)
-        over = torch.tensor([data[4] for data in chosenData], dtype=torch.float32).to(self.device)
+        state = torch.tensor(numpy.array([data[0] for data in chosenData]), dtype=torch.float32).to(self.device)
+        action = torch.tensor(numpy.array([data[1] for data in chosenData]), dtype=torch.int64).to(self.device)
+        reward = torch.tensor(numpy.array([data[2] for data in chosenData]), dtype=torch.float32).to(self.device)
+        state_ = torch.tensor(numpy.array([data[3] for data in chosenData]), dtype=torch.float32).to(self.device)
+        over = torch.tensor(numpy.array([data[4] for data in chosenData]), dtype=torch.float32).to(self.device)
 
         QValue = self.DQNforward(state).gather(1, action.unsqueeze(-1)).reshape(1,-1).squeeze(0)
         with torch.no_grad():
@@ -110,7 +110,7 @@ class DoubleDQNetwork(torch.nn.Module):
         if epoch % 6 == 0:
             self.UpdateTargetModel()
 
-def DoubleDQN():
+def DoubleDQN(writer):
     DoubleDQNet = DoubleDQNetwork("cuda", EPSILON)
     environment = gym.make('CartPole-v1', render_mode="rgb_array")
     dataPool = []
@@ -125,13 +125,12 @@ def DoubleDQN():
             dataPool.append((state, action, reward, state_, over))
             state = state_
 
-    record = []
     for epoch in range(8000):
         DoubleDQNet.epsilon = max(DoubleDQNet.epsilon * 0.9975, 0.1)
         DoubleDQNet.DQNtrain(dataPool, epoch)
-        record.append((epoch, play(environment, DoubleDQNet, dataPool, epoch)))
+        writer.add_scalar('reward-epoch', play(environment, DoubleDQNet, dataPool, epoch), epoch)
     
-    Draw(record)
+    writer.close()
 
 def play(environment, DoubleDQNet, dataPool, epoch):
     state = environment.reset()[0]
@@ -156,12 +155,9 @@ def play(environment, DoubleDQNet, dataPool, epoch):
 
     return sumReaward
 
-def Draw(record):
-    x = [coord[0] for coord in record]
-    y = [coord[1] for coord in record]
-    matplotlib.pyplot.plot(x, y, 'o')
-    matplotlib.pyplot.show()
+def main():
+    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\CartPole-DDQN')  
+    DoubleDQN(writer)
 
-    print(sum(y)/len(y), max(y), min(y))
-
-DoubleDQN()
+if __name__ == "__main__":
+    main()

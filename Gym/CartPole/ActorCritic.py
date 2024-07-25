@@ -1,5 +1,4 @@
 import gym
-import numpy
 import torch
 from torch.utils.tensorboard import SummaryWriter
 

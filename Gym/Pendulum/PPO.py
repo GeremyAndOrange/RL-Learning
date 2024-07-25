@@ -150,7 +150,7 @@ def play(environment, PPONet, epoch):
         state = state_
         totalReward += reward
     
-    if epoch % 10 == 0:
+    if (epoch + 1) % 10 == 0:
         print(f'Epoch: {epoch}, ActorLoss: {sum(PPONet.actorLoss)}, CriticLoss: {sum(PPONet.criticLoss)}, Reward: {totalReward}')
 
     PPONet.initialize()
