@@ -198,8 +198,8 @@ def main():
         DeepQNet.hyperParameters.epsilon = max(DeepQNet.hyperParameters.epsilon * 0.997, 0.01)
         DeepQNet.DQNtrain()
         writer.add_scalar('reward-epoch', DeepQNet.play(environment, epoch), epoch)
-        if epoch + 1 % 1000 == 0:
-            DeepQNet.saveModel('.\\model\\Tennis\\' + str(epoch + 1) + '.pth')
+        if epoch % 1000 == 0:
+            DeepQNet.saveModel('C:\\Users\\60520\\Desktop\\RL-learning\\Tennis\\' + 'model-' + str(epoch + 1) + '.pth')
 
 if __name__ == '__main__':
     main()
