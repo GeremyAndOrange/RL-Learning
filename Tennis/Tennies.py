@@ -7,10 +7,10 @@ from torch.utils.tensorboard import SummaryWriter
 # Discrete action space, so choose DQN
 class HyperParameters:
     def __init__(self):
-        self.lr = 1e-4
+        self.lr = 3e-4
         self.gamma = 0.99
         self.epsilon = 0.999
-        self.dataStoreLen = 100000
+        self.dataStoreLen = 10000
 
 class StateFeatureNetworkl(torch.nn.Module):
     def __init__(self, device):
@@ -136,7 +136,7 @@ class DQNNetWork():
         return chosenAction
     
     def DQNtrain(self):
-        chosenData = random.sample(self.dataStore, 2000)
+        chosenData = random.sample(self.dataStore, 200)
         state = torch.tensor(numpy.array([data[0] for data in chosenData]), dtype=torch.float32).reshape(-1, 3, 210, 160).to(self.device)
         action = torch.tensor(numpy.array([data[1] for data in chosenData]), dtype=torch.int64).reshape(-1, 1).to(self.device)
         reward = torch.tensor(numpy.array([data[2] for data in chosenData]), dtype=torch.float32).reshape(-1, 1).to(self.device)
@@ -194,12 +194,12 @@ def main():
     writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\Tnnies-DQN')
     DeepQNet.getData(environment)
 
-    for epoch in range(10000):
-        DeepQNet.hyperParameters.epsilon = max(DeepQNet.hyperParameters.epsilon * 0.997, 0.01)
+    for epoch in range(100000):
+        DeepQNet.hyperParameters.epsilon = max(DeepQNet.hyperParameters.epsilon * 0.999, 0.01)
         DeepQNet.DQNtrain()
         writer.add_scalar('reward-epoch', DeepQNet.play(environment, epoch), epoch)
         if epoch + 1 % 1000 == 0:
-            DeepQNet.saveModel('.\\model\\Tennis\\' + str(epoch + 1) + '.pth')
+            DeepQNet.saveModel('C:\\Users\\60520\\Desktop\\RL-learning\\Tennis\\' + 'model-' + str(epoch + 1) + '.pth')
 
 if __name__ == '__main__':
     main()
