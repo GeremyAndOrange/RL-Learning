@@ -195,7 +195,7 @@ def main():
     DeepQNet.getData(environment)
 
     for epoch in range(100000):
-        DeepQNet.hyperParameters.epsilon = max(DeepQNet.hyperParameters.epsilon * 0.997, 0.01)
+        DeepQNet.hyperParameters.epsilon = max(DeepQNet.hyperParameters.epsilon * 0.999, 0.01)
         DeepQNet.DQNtrain()
         writer.add_scalar('reward-epoch', DeepQNet.play(environment, epoch), epoch)
         if epoch + 1 % 1000 == 0:
