@@ -10,13 +10,13 @@ START = [2, 2]          # 起点坐标
 END = [48, 48]          # 终点坐标
 MAX_NODES = 200         # 节点最大数量
 STEP_SIZE = 0.5         # 步长
-OBSTACLE_NUM = 8        # 障碍物数量
+OBSTACLE_NUM = 9        # 障碍物数量
 OBSTACLE_RADIUS = 4     # 障碍物半径
 MAP_LENGTH = 50         # 地图长度
 MAP_HEIGHT = 50         # 地图宽度
 MAP_RESOLUTION = 0.5    # 地图分辨率
 SCAN_RANGE = 31         # 智能体扫描范围
-ALPHA = 1               # 奖励权重
+ALPHA = 2               # 奖励权重
 
 # enumeration value
 COLLISION = 1
@@ -25,7 +25,7 @@ OUT_MAP = -1
 
 class HyperParameters():
     def __init__(self):
-        self.actorLr = 1e-4
+        self.actorLr = 3e-4
         self.criticLr = 3e-4
         self.gamma = 0.99
         self.epsilon = 0.999
@@ -312,7 +312,7 @@ class Environment():
             over = True
         return state, reward, over
 
-    def render(self):
+    def render(self, path=None):
         matplotlib.pyplot.figure(figsize=(10, 10))
         finalPath = []
         node = self.nodes[-1]
@@ -340,7 +340,10 @@ class Environment():
         matplotlib.pyplot.xlim(0, int(MAP_LENGTH / MAP_RESOLUTION + 1))
         matplotlib.pyplot.ylim(0, int(MAP_HEIGHT / MAP_RESOLUTION + 1))
         matplotlib.pyplot.gca().set_aspect('equal', adjustable='box')
-        matplotlib.pyplot.show()
+        if path is not None:
+            matplotlib.pyplot.savefig(path, dpi=1200)
+        else:
+            matplotlib.pyplot.show()
 
     def getState(self):
         positionInfo = [int(item / MAP_RESOLUTION) for item in self.nodes[-1].point]
@@ -359,9 +362,9 @@ class Environment():
 
     def getReward(self):
         if self.nodes[-1].point == END:
-            reward = (MAX_NODES - len(self.nodes)) * 1
+            reward = 50
         elif (self.nodes[-1].point[0] >= 0 and self.nodes[-1].point[0] <= 50 and self.nodes[-1].point[1] >= 0 and self.nodes[-1].point[1] <= 50) and self.mapInfo.CheckCollision(self.nodes[-1]):
-            reward = (MAX_NODES - len(self.nodes)) * (-1)
+            reward = -50
         else:
             oldDistance = numpy.linalg.norm(numpy.array(self.nodes[-2].point) - numpy.array(END))
             newDistance = numpy.linalg.norm(numpy.array(self.nodes[-1].point) - numpy.array(END))
@@ -379,12 +382,11 @@ def main():
 
     for epoch in range(100000):
         DPGNet.DPGTrain()
-        DPGNet.hyperParameters.epsilon = max(DPGNet.hyperParameters.epsilon * 0.999, 0.01)
+        DPGNet.hyperParameters.epsilon = max(DPGNet.hyperParameters.epsilon * 0.9996, 0.01)
         writer.add_scalar('reward-epoch', DPGNet.play(environment, epoch), epoch)
-        if epoch + 1 % 1000 == 0:
+        if (epoch + 1) % 1000 == 0:
             DPGNet.saveModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'model-' + str(epoch + 1) + '.pth')
-        elif epoch % 500 == 0:
-            environment.render()
+            environment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'figure-' + str(epoch + 1) + '.png')
 
 if __name__ == '__main__':
     main()
