@@ -2,3 +2,4 @@ numpy==1.26.4
 tensorboard==2.17.0
 gym[atari]==0.26.2
 gym[accept-rom-license]
+matplotlib==3.9.1

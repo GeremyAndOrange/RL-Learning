@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 # Discrete action space, so choose DQN
 class HyperParameters:
     def __init__(self):
-        self.lr = 1e-3
+        self.lr = 1e-4
         self.gamma = 0.99
         self.epsilon = 0.999
         self.dataStoreLen = 100000
