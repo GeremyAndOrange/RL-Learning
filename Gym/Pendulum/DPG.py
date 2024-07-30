@@ -104,7 +104,7 @@ class DPGNetWork(torch.nn.Module):
         QValue = self.criticForward(state, action)
 
         action_ = self.TargetActorForward(state_)
-        QValue_ = self.TargetCriticForward(state_, action_.reshape(-1, 1).to(self.device)).max(dim=1)[0].reshape(-1, 1)
+        QValue_ = self.TargetCriticForward(state_, action_.reshape(-1, 1).to(self.device))
         Target = reward + 0.99 * QValue_ * (1 - over)
         CriticLoss = self.lossFunction(QValue, Target)
 
