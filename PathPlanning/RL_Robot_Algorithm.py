@@ -19,17 +19,18 @@ SCAN_RANGE = 31         # 智能体扫描范围
 ALPHA = 2               # 奖励权重
 
 # enumeration value
-COLLISION = 1
+COLLISION = 127
 ROBOT = 255
 OUT_MAP = -1
 
 class HyperParameters():
     def __init__(self):
-        self.actorLr = 3e-4
-        self.criticLr = 3e-4
+        self.actorLr = 1e-4
+        self.criticLr = 1e-4
         self.gamma = 0.99
         self.epsilon = 0.999
-        self.dataStoreLen = 10000
+        self.dataStoreLen = 100000
+        self.initStoreLen = 500
 
 class Node:
     def __init__(self, point, parent = None):
@@ -88,7 +89,7 @@ class StateFeatureNetWork(torch.nn.Module):
         super(StateFeatureNetWork,self).__init__()
         self.device = device
         self.netWork = torch.nn.Sequential(
-            torch.nn.Conv2d(1, 16, 5, 1, 1),
+            torch.nn.Conv2d(5, 16, 5, 1, 1),
             torch.nn.MaxPool2d(2),
             torch.nn.Conv2d(16, 32, 5, 1, 1),
             torch.nn.MaxPool2d(2),
@@ -175,7 +176,7 @@ class ACNetWork():
         }, path)
 
     def loadModel(self, path):
-        checkpoint = torch.load(path)
+        checkpoint = torch.load(path, weights_only=True)
         self.StateFeatureModel.load_state_dict(checkpoint['stateFeatureModel_state_dict'])
         self.CriticModel.load_state_dict(checkpoint['CriticModel_state_dict'])
         self.TargetCriticModel.load_state_dict(checkpoint['TargetCriticModel_state_dict'])
@@ -212,7 +213,7 @@ class ACNetWork():
         if random.random() < self.hyperParameters.epsilon:
             action = torch.tensor(numpy.random.uniform(0, 360, 1), dtype=torch.float32).reshape(-1,1).to(self.device)
         else:
-            state = torch.tensor(state, dtype=torch.float32).reshape(-1,1,SCAN_RANGE+1,SCAN_RANGE+1).to(self.device)
+            state = torch.tensor(state, dtype=torch.float32).reshape(-1,5,SCAN_RANGE+1,SCAN_RANGE+1).to(self.device)
             action = self.actorForward(state)
         return action
     
@@ -222,16 +223,16 @@ class ACNetWork():
 
     def DPGTrain(self):
         chosenData = random.sample(self.dataStore, 64)
-        state = torch.tensor(numpy.array([data[0] for data in chosenData]), dtype=torch.float32).reshape(-1,1,SCAN_RANGE+1,SCAN_RANGE+1).to(self.device)
-        action = torch.tensor(numpy.array([data[1] for data in chosenData]), dtype=torch.float32).reshape(-1, 1).to(self.device)
-        reward = torch.tensor(numpy.array([data[2] for data in chosenData]), dtype=torch.float32).reshape(-1, 1).to(self.device)
-        state_ = torch.tensor(numpy.array([data[3] for data in chosenData]), dtype=torch.float32).reshape(-1,1,SCAN_RANGE+1,SCAN_RANGE+1).to(self.device)
-        over = torch.tensor(numpy.array([data[4] for data in chosenData]), dtype=torch.float32).reshape(-1, 1).to(self.device)
+        state = torch.tensor(numpy.array([data[0] for data in chosenData]), dtype=torch.float32).reshape(-1,5,SCAN_RANGE+1,SCAN_RANGE+1).to(self.device)
+        action = torch.tensor(numpy.array([data[1] for data in chosenData]), dtype=torch.float32).reshape(-1,1).to(self.device)
+        reward = torch.tensor(numpy.array([data[2] for data in chosenData]), dtype=torch.float32).reshape(-1,1).to(self.device)
+        state_ = torch.tensor(numpy.array([data[3] for data in chosenData]), dtype=torch.float32).reshape(-1,5,SCAN_RANGE+1,SCAN_RANGE+1).to(self.device)
+        over = torch.tensor(numpy.array([data[4] for data in chosenData]), dtype=torch.float32).reshape(-1,1).to(self.device)
 
         QValue = self.criticForward(state, action)
 
         action_ = self.targetActorForward(state_)
-        QValue_ = self.targetCriticForward(state_, action_.reshape(-1, 1).to(self.device)).max(dim=1)[0].reshape(-1, 1)
+        QValue_ = self.targetCriticForward(state_, action_.reshape(-1, 1).to(self.device))
         Target = reward + self.hyperParameters.gamma * QValue_ * (1 - over)
         CriticLoss = self.lossFunction(QValue, Target)
 
@@ -242,7 +243,7 @@ class ACNetWork():
 
         actionPre = self.actorForward(state)
         QValue = self.criticForward(state, actionPre.reshape(-1, 1).to(self.device))
-        ActorLoss = -QValue.mean()
+        ActorLoss = -(QValue).mean()
 
         self.actorOptimizer.zero_grad()
         ActorLoss.backward()
@@ -253,7 +254,7 @@ class ACNetWork():
         self.UpdateTargetNetWork(self.TargetCriticModel, self.CriticModel)
     
     def getData(self, environment):
-        while len(self.dataStore) < self.hyperParameters.dataStoreLen:
+        while len(self.dataStore) < self.hyperParameters.initStoreLen:
             environment.reset()
             state = environment.getState()
             over = False
@@ -358,7 +359,13 @@ class Environment():
                 else:
                     state[x][y] = OUT_MAP
         state[SCAN_RANGE//2][SCAN_RANGE//2] = ROBOT
-        return numpy.array(state)
+        state = numpy.array(state)
+        selfMask1 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), positionInfo[0])
+        selfMask2 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), positionInfo[1])
+        endMask1 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), END[0])
+        endMask2 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), END[1])
+        finalState = numpy.dstack((state, selfMask1, selfMask2, endMask1, endMask2)).transpose((2, 0, 1))
+        return finalState
 
     def getReward(self):
         if self.nodes[-1].point == END:
@@ -373,20 +380,40 @@ class Environment():
 
         return reward
 
-# main
-def main():
+def modelTrain():
     DPGNet = ACNetWork("cuda")
     environment = Environment()
     writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\PP-DPG')
     DPGNet.getData(environment)
 
     for epoch in range(100000):
-        DPGNet.DPGTrain()
-        DPGNet.hyperParameters.epsilon = max(DPGNet.hyperParameters.epsilon * 0.9996, 0.01)
+        for index in range(10):
+            DPGNet.DPGTrain()
+        DPGNet.hyperParameters.epsilon = max(DPGNet.hyperParameters.epsilon * 0.9998, 0.05)
         writer.add_scalar('reward-epoch', DPGNet.play(environment, epoch), epoch)
-        if (epoch + 1) % 1000 == 0:
+        if (epoch + 1) % 5000 == 0:
             DPGNet.saveModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'model-' + str(epoch + 1) + '.pth')
             environment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'figure-' + str(epoch + 1) + '.png')
+
+def modelTest():
+    DPGNet = ACNetWork("cuda")
+    environment = Environment()
+    modelName = 'model-20000.pth'
+    DPGNet.loadModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + modelName)
+
+    DPGNet.hyperParameters.epsilon = 0
+    DPGNet.play(environment, 0)
+    environment.render()
+
+# main
+def main():
+    typeParameter = 0
+    if typeParameter == 0:
+        modelTrain()
+    if typeParameter == 1:
+        modelTest()
+
+    return
 
 if __name__ == '__main__':
     main()
