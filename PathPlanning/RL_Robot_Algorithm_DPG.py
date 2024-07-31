@@ -16,7 +16,7 @@ MAP_LENGTH = 50         # 地图长度
 MAP_HEIGHT = 50         # 地图宽度
 MAP_RESOLUTION = 0.5    # 地图分辨率
 SCAN_RANGE = 31         # 智能体扫描范围
-ALPHA = 2               # 奖励权重
+ALPHA = 1               # 奖励权重
 
 # enumeration value
 COLLISION = 127
@@ -29,7 +29,7 @@ class HyperParameters():
         self.criticLr = 1e-4
         self.gamma = 0.99
         self.epsilon = 0.999
-        self.dataStoreLen = 100000
+        self.dataStoreLen = 1000000
         self.initStoreLen = 500
 
 class Node:
@@ -275,13 +275,13 @@ class ACNetWork():
             state = state_
             self.reward.append(reward)
 
-        sumReaward = sum(self.reward)
+        sumReward = sum(self.reward)
         while len(self.dataStore) > self.hyperParameters.dataStoreLen:
             self.dataStore.pop(0)
         
         print(f'Epoch: {epoch}, ActorLoss: {sum(self.actorLoss)}, CriticLoss: {sum(self.criticLoss)}, sumReward: {sum(self.reward)}')
         self.initialize()
-        return sumReaward
+        return sumReward
 
 class Environment():
     def __init__(self):
@@ -376,7 +376,7 @@ class Environment():
             oldDistance = numpy.linalg.norm(numpy.array(self.nodes[-2].point) - numpy.array(END))
             newDistance = numpy.linalg.norm(numpy.array(self.nodes[-1].point) - numpy.array(END))
             moveRate = (oldDistance - newDistance) / STEP_SIZE
-            reward = ALPHA * moveRate + 0.05
+            reward = ALPHA * moveRate
 
         return reward
 
@@ -385,20 +385,22 @@ def modelTrain():
     environment = Environment()
     writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\PP-DPG')
     DPGNet.getData(environment)
+    environment.render()
 
     for epoch in range(100000):
-        for index in range(10):
-            DPGNet.DPGTrain()
-        DPGNet.hyperParameters.epsilon = max(DPGNet.hyperParameters.epsilon * 0.9998, 0.05)
+        DPGNet.DPGTrain()
+        DPGNet.hyperParameters.epsilon = max(DPGNet.hyperParameters.epsilon * 0.9999, 0.05)
         writer.add_scalar('reward-epoch', DPGNet.play(environment, epoch), epoch)
         if (epoch + 1) % 5000 == 0:
-            DPGNet.saveModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'model-' + str(epoch + 1) + '.pth')
-            environment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'figure-' + str(epoch + 1) + '.png')
+            DPGNet.saveModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'DPG-model-' + str(epoch + 1) + '.pth')
+            environment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'DPG-figure-' + str(epoch + 1) + '.png')
+
+    writer.close()
 
 def modelTest():
     DPGNet = ACNetWork("cuda")
     environment = Environment()
-    modelName = 'model-20000.pth'
+    modelName = 'model-10000.pth'
     DPGNet.loadModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + modelName)
 
     DPGNet.hyperParameters.epsilon = 0
@@ -407,7 +409,7 @@ def modelTest():
 
 # main
 def main():
-    typeParameter = 0
+    typeParameter = 1
     if typeParameter == 0:
         modelTrain()
     if typeParameter == 1:

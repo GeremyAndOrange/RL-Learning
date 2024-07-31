@@ -58,7 +58,7 @@ class PPONetWork(torch.nn.Module):
         self.ValueNetWork = ValueNetWork.to(self.device)
 
         self.lossFunction = torch.nn.MSELoss()
-        self.valuecOptimizer = torch.optim.Adam(self.ValueNetWork.parameters(), lr=0.0003)
+        self.valueOptimizer = torch.optim.Adam(self.ValueNetWork.parameters(), lr=0.0003)
         self.actorOptimizer = torch.optim.Adam(list(self.NewActorNetWorkMu.parameters()) + list(self.NewActorNetWorkSigma.parameters()), lr=0.0001)
         self.InitialParameter()
 
@@ -113,14 +113,15 @@ class PPONetWork(torch.nn.Module):
                 self.actorOptimizer.zero_grad()
                 ActorLoss.backward()
                 torch.nn.utils.clip_grad_norm_(self.NewActorNetWorkMu.parameters(), 0.5)
+                torch.nn.utils.clip_grad_norm_(self.NewActorNetWorkSigma.parameters(), 0.5)
                 self.actorOptimizer.step()
                 self.actorLoss.append(ActorLoss.item())
 
                 ValueLoss = self.lossFunction(self.ValueForward(oldState[index]), targetValue[index])
-                self.valuecOptimizer.zero_grad()
+                self.valueOptimizer.zero_grad()
                 ValueLoss.backward()
                 torch.nn.utils.clip_grad_norm_(self.ValueNetWork.parameters(), 0.5)
-                self.valuecOptimizer.step()
+                self.valueOptimizer.step()
                 self.criticLoss.append(ValueLoss.item())
 
         self.UpdateTargetNetWork(self.OldActorNetWorkMu, self.NewActorNetWorkMu)
