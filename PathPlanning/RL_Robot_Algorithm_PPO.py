@@ -31,7 +31,7 @@ class HyperParameters():
         self.gamma = 0.99
         self.gradEpsilon = 0.2
         self.gradClip = 0.5
-        self.dataStoreLen = 4000
+        self.dataStoreLen = 10000
         self.trainStep = 10
 
 class Node:
