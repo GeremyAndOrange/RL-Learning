@@ -26,12 +26,13 @@ OUT_MAP = -1
 
 class HyperParameters():
     def __init__(self):
-        self.actorLr = 1e-4
-        self.criticLr = 1e-4
+        self.actorLr = 2e-4
+        self.criticLr = 3e-4
         self.gamma = 0.99
         self.gradEpsilon = 0.2
         self.gradClip = 0.5
-        self.dataStoreLen = 10000
+        self.dataStoreLen = 4000
+        self.trainStep = 10
 
 class Node:
     def __init__(self, point, parent = None):
@@ -247,8 +248,8 @@ class PPONetWork():
             targetValue = reward + self.hyperParameters.gamma * self.ValueForward(oldState_)
         advantage = (targetValue - self.ValueForward(oldState)).detach()
 
-        for _ in range(10):
-            for index in BatchSampler(SubsetRandomSampler(range(len(self.dataStore))), 128, False):
+        for _ in range(self.hyperParameters.trainStep):
+            for index in BatchSampler(SubsetRandomSampler(range(len(self.dataStore))), 64, False):
                 newActionLogProb = self.NewActorForward(oldState[index], oldAction[index])
                 ratio = torch.exp(newActionLogProb - oldActionLogProb[index])
 
@@ -388,21 +389,22 @@ class Environment():
             oldDistance = numpy.linalg.norm(numpy.array(self.nodes[-2].point) - numpy.array(END))
             newDistance = numpy.linalg.norm(numpy.array(self.nodes[-1].point) - numpy.array(END))
             moveRate = (oldDistance - newDistance) / STEP_SIZE
-            reward = ALPHA * moveRate
+            reward = ALPHA * moveRate + 0.05
 
         return reward
 
 def modelTrain():
     PPONet = PPONetWork("cuda")
-    environment = Environment()
     writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\PP-PPO')
-    environment.render()
 
-    for epoch in range(100000):
-        writer.add_scalar('reward-epoch', PPONet.play(environment, epoch), epoch)
-        if (epoch + 1) % 5000 == 0:
-            PPONet.saveModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'PPO-model-' + str(epoch + 1) + '.pth')
-            environment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'PPO-figure-' + str(epoch + 1) + '.png')
+    for mapIndex in range(10):
+        environment = Environment()
+        environment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'PPO-figure-' + str(0) + '.png')
+        for epoch in range(50000):
+            writer.add_scalar('reward-epoch', PPONet.play(environment, epoch), epoch)
+            if (epoch + 1) % 5000 == 0:
+                PPONet.saveModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'PPO-model-' + str(epoch + 1) + '.pth')
+                environment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'PPO-figure-' + str(epoch + 1) + '.png')
 
     writer.close()
 
