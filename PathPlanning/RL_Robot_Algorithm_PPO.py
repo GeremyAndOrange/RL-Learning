@@ -9,7 +9,7 @@ from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 # parameters
 START = [2, 2]          # 起点坐标
 END = [48, 48]          # 终点坐标
-MAX_NODES = 200         # 节点最大数量
+MAX_NODES = 500         # 节点最大数量
 STEP_SIZE = 0.5         # 步长
 OBSTACLE_NUM = 9        # 障碍物数量
 OBSTACLE_RADIUS = 4     # 障碍物半径
@@ -31,7 +31,7 @@ class HyperParameters():
         self.gamma = 0.99
         self.gradEpsilon = 0.2
         self.gradClip = 0.5
-        self.dataStoreLen = 1000
+        self.dataStoreLen = 10000
 
 class Node:
     def __init__(self, point, parent = None):
@@ -125,7 +125,7 @@ class ActorNetWorkMu(torch.nn.Module):
 
 class ActorNetWorkSigma(torch.nn.Module):
     def __init__(self, device) -> None:
-        super(ActorNetWorkMu,self).__init__()
+        super(ActorNetWorkSigma,self).__init__()
         self.device = device
         self.netWork = torch.nn.Sequential(
             torch.nn.Linear(20, 256),
@@ -212,6 +212,7 @@ class PPONetWork():
         self.OldActorSigmaModel.eval()
 
     def OldActorForward(self, state):
+        state = torch.tensor(state, dtype=torch.float32).reshape(-1,5,SCAN_RANGE+1,SCAN_RANGE+1).to(self.device)
         stateFeature = self.StateFeatureModel(state)
         Mu, Sigma = self.OldActorMuModel(stateFeature), self.OldActorSigmaModel(stateFeature) + 1e-5
         distribution = torch.distributions.Normal(Mu, Sigma)
@@ -239,7 +240,7 @@ class PPONetWork():
         oldAction = torch.tensor(numpy.array([data[1] for data in self.dataStore]), dtype=torch.float32).reshape(-1,1).to(self.device)
         reward = torch.tensor(numpy.array([data[2] for data in self.dataStore]), dtype=torch.float32).reshape(-1,1).to(self.device)
         oldState_ = torch.tensor(numpy.array([data[3] for data in self.dataStore]), dtype=torch.float32).reshape(-1,5,SCAN_RANGE+1,SCAN_RANGE+1).to(self.device)
-        oldActionLogProb = torch.tensor(numpy.array([data[4] for data in self.dataStore]), dtype=torch.float32).reshape(-1,1).to(self.device)
+        oldActionLogProb = torch.tensor([data[4] for data in self.dataStore], dtype=torch.float32).reshape(-1,1).to(self.device)
 
         reward = (reward - reward.mean()) / (reward.std() + 1e-5)
         with torch.no_grad():
@@ -275,19 +276,20 @@ class PPONetWork():
     def play(self, environment, epoch):
         environment.reset()
         state = environment.getState()
-        over = False
+        over, printFlag = False, False
         while not over:
             action, logProb = self.OldActorForward(state)
             state_, reward, over = environment.step(action)
-            self.dataStore.append((state, action, reward, state_, logProb))
+            self.dataStore.append((state, action.item(), reward, state_, logProb))
             if len(self.dataStore) >= self.hyperParameters.dataStoreLen:
                 self.PPOTrain()
+                printFlag = True
 
             state = state_
             self.reward.append(reward)
 
         sumReward = sum(self.reward)
-        if (epoch + 1) % 10 == 0:
+        if printFlag == True:
             print(f'Epoch: {epoch}, ActorLoss: {sum(self.actorLoss)}, CriticLoss: {sum(self.criticLoss)}, Reward: {sumReward}')
 
         self.initialize()
@@ -379,7 +381,7 @@ class Environment():
 
     def getReward(self):
         if self.nodes[-1].point == END:
-            reward = 50
+            reward = reward = (MAX_NODES - len(self.nodes)) * 0.1 + 50
         elif (self.nodes[-1].point[0] >= 0 and self.nodes[-1].point[0] <= 50 and self.nodes[-1].point[1] >= 0 and self.nodes[-1].point[1] <= 50) and self.mapInfo.CheckCollision(self.nodes[-1]):
             reward = -50
         else:

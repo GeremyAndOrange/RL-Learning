@@ -8,7 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 # parameters
 START = [2, 2]          # 起点坐标
 END = [48, 48]          # 终点坐标
-MAX_NODES = 200         # 节点最大数量
+MAX_NODES = 500         # 节点最大数量
 STEP_SIZE = 0.5         # 步长
 OBSTACLE_NUM = 9        # 障碍物数量
 OBSTACLE_RADIUS = 4     # 障碍物半径
@@ -369,7 +369,7 @@ class Environment():
 
     def getReward(self):
         if self.nodes[-1].point == END:
-            reward = 50
+            reward = (MAX_NODES - len(self.nodes)) * 0.1 + 50
         elif (self.nodes[-1].point[0] >= 0 and self.nodes[-1].point[0] <= 50 and self.nodes[-1].point[1] >= 0 and self.nodes[-1].point[1] <= 50) and self.mapInfo.CheckCollision(self.nodes[-1]):
             reward = -50
         else:
@@ -384,8 +384,8 @@ def modelTrain():
     DPGNet = ACNetWork("cuda")
     environment = Environment()
     writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\PP-DPG')
-    DPGNet.getData(environment)
     environment.render()
+    DPGNet.getData(environment)
 
     for epoch in range(100000):
         DPGNet.DPGTrain()
@@ -409,7 +409,7 @@ def modelTest():
 
 # main
 def main():
-    typeParameter = 1
+    typeParameter = 0
     if typeParameter == 0:
         modelTrain()
     if typeParameter == 1:
