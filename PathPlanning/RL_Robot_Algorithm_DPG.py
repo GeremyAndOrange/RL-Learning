@@ -426,7 +426,7 @@ def modelTrain():
                 JoinEvent.set()
                 StartEvent.clear()
             else:
-                time.sleep(0.01)
+                time.sleep(0.02)
 
     DPGNet = DPGNetWork("cuda")
     writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\PP-DPG')
@@ -452,7 +452,7 @@ def modelTrain():
         DPGNet.DPGTrain()
         DPGNet.hyperParameters.epsilon = max(DPGNet.hyperParameters.epsilon * 0.9996, 0.05)
         writer.add_scalar('reward-epoch', DPGNet.play(globalEnvironment, epoch), epoch)
-        if (epoch + 1) % 500 == 0:
+        if (epoch + 1) % 5000 == 0:
             DPGNet.saveModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'DPG-model-' + str(epoch + 1) + '.pth')
             globalEnvironment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'DPG-figure-' + str(epoch + 1) + '.png')
 
