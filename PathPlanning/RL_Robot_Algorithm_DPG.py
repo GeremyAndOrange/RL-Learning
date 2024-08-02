@@ -2,6 +2,7 @@ import math
 import numpy
 import torch
 import random
+import threading
 import matplotlib.pyplot
 from torch.utils.tensorboard import SummaryWriter
 
@@ -30,7 +31,7 @@ class HyperParameters():
         self.gamma = 0.99
         self.epsilon = 0.999
         self.dataStoreLen = 1000000
-        self.initStoreLen = 500
+        self.workerNum = 4
 
 class Node:
     def __init__(self, point, parent = None):
@@ -80,209 +81,6 @@ class MapInfo:
             distance += numpy.linalg.norm(numpy.array(node.point) - numpy.array(node.parent.point))
             node = node.parent
         return distance
-
-################################################################################
-
-# ACNetWork
-class StateFeatureNetWork(torch.nn.Module):
-    def __init__(self, device) -> None:
-        super(StateFeatureNetWork,self).__init__()
-        self.device = device
-        self.netWork = torch.nn.Sequential(
-            torch.nn.Conv2d(5, 16, 5, 1, 1),
-            torch.nn.MaxPool2d(2),
-            torch.nn.Conv2d(16, 32, 5, 1, 1),
-            torch.nn.MaxPool2d(2),
-            torch.nn.Conv2d(32, 32, 5, 1, 1),
-            torch.nn.MaxPool2d(2),
-            torch.nn.Flatten(),
-            torch.nn.Linear(128, 20)
-        )
-        self.netWork.to(self.device)
-
-    def forward(self, state):
-        stateFeature = self.netWork(state)
-        return stateFeature
-
-class ActorNetWork(torch.nn.Module):
-    def __init__(self, device) -> None:
-        super(ActorNetWork,self).__init__()
-        self.device = device
-        self.netWork = torch.nn.Sequential(
-            torch.nn.Linear(20, 256),
-            torch.nn.ReLU(),
-            torch.nn.Linear(256, 64),
-            torch.nn.ReLU(),
-            torch.nn.Linear(64, 1),
-            torch.nn.Tanh()
-        )
-        self.netWork.to(self.device)
-
-    def forward(self, stateFeature):
-        action = self.netWork(stateFeature) * 180 + 180
-        return action
-
-class CriticNetWork(torch.nn.Module):
-    def __init__(self, device) -> None:
-        super(CriticNetWork,self).__init__()
-        self.device = device
-        self.netWork = torch.nn.Sequential(
-            torch.nn.Linear(21, 256),
-            torch.nn.ReLU(),
-            torch.nn.Linear(256, 64),
-            torch.nn.ReLU(),
-            torch.nn.Linear(64, 1)
-        )
-        self.netWork.to(self.device)
-
-    def forward(self, stateFeature, action):
-        tensor = torch.cat((stateFeature, action), 1)
-        value = self.netWork(tensor)
-        return value
-
-class ACNetWork():
-    def __init__(self, device):
-        self.StateFeatureModel = StateFeatureNetWork(device)
-        self.ActorModel = ActorNetWork(device)
-        self.TargetActorModel = ActorNetWork(device)
-        self.CriticModel = CriticNetWork(device)
-        self.TargetCriticModel = CriticNetWork(device)
-
-        self.hyperParameters = HyperParameters()
-        self.actorOptimizer = torch.optim.Adam(self.ActorModel.parameters(), lr=self.hyperParameters.actorLr)
-        self.criticOptimizer = torch.optim.Adam(list(self.StateFeatureModel.parameters()) + list(self.CriticModel.parameters()), lr=self.hyperParameters.criticLr)
-        self.lossFunction = torch.nn.MSELoss()
-        self.dataStore = []
-        self.device = device
-        self.initialize()
-        self.InitialParameter()
-
-    def initialize(self):
-        self.reward = []
-        self.actorLoss = []
-        self.criticLoss = []
-
-    def InitialParameter(self):
-        self.TargetActorModel.load_state_dict(self.ActorModel.state_dict())
-        self.TargetCriticModel.load_state_dict(self.CriticModel.state_dict())
-
-    def saveModel(self, path):
-        torch.save({
-            'stateFeatureModel_state_dict': self.StateFeatureModel.state_dict(),
-            'CriticModel_state_dict': self.CriticModel.state_dict(),
-            'TargetCriticModel_state_dict': self.TargetCriticModel.state_dict(),
-            'ActorModel_state_dict': self.ActorModel.state_dict(),
-            'TargetActorModel_state_dict': self.TargetActorModel.state_dict(),
-        }, path)
-
-    def loadModel(self, path):
-        checkpoint = torch.load(path, weights_only=True)
-        self.StateFeatureModel.load_state_dict(checkpoint['stateFeatureModel_state_dict'])
-        self.CriticModel.load_state_dict(checkpoint['CriticModel_state_dict'])
-        self.TargetCriticModel.load_state_dict(checkpoint['TargetCriticModel_state_dict'])
-        self.ActorModel.load_state_dict(checkpoint['ActorModel_state_dict'])
-        self.TargetActorModel.load_state_dict(checkpoint['TargetActorModel_state_dict'])
-
-        self.StateFeatureModel.eval()
-        self.CriticModel.eval()
-        self.TargetCriticModel.eval()
-        self.ActorModel.eval()
-        self.TargetActorModel.eval()
-
-    def actorForward(self, state):
-        stateFeature = self.StateFeatureModel(state)
-        action = self.ActorModel(stateFeature)
-        return action
-    
-    def criticForward(self, state, action):
-        stateFeature = self.StateFeatureModel(state)
-        value = self.CriticModel(stateFeature, action)
-        return value
-    
-    def targetActorForward(self, state):
-        stateFeature = self.StateFeatureModel(state)
-        action = self.TargetActorModel(stateFeature)
-        return action
-
-    def targetCriticForward(self, state, action):
-        stateFeature = self.StateFeatureModel(state)
-        value = self.TargetCriticModel(stateFeature, action)
-        return value
-    
-    def getAction(self, state):
-        if random.random() < self.hyperParameters.epsilon:
-            action = torch.tensor(numpy.random.uniform(0, 360, 1), dtype=torch.float32).reshape(-1,1).to(self.device)
-        else:
-            state = torch.tensor(state, dtype=torch.float32).reshape(-1,5,SCAN_RANGE+1,SCAN_RANGE+1).to(self.device)
-            action = self.actorForward(state)
-        return action
-    
-    def UpdateTargetNetWork(self, TargetNetWork, NetWork):
-        for targetParam, param in zip(TargetNetWork.parameters(), NetWork.parameters()):
-            targetParam.data.copy_(0.005 * param.data + (1 - 0.005) * targetParam.data)
-
-    def DPGTrain(self):
-        chosenData = random.sample(self.dataStore, 64)
-        state = torch.tensor(numpy.array([data[0] for data in chosenData]), dtype=torch.float32).reshape(-1,5,SCAN_RANGE+1,SCAN_RANGE+1).to(self.device)
-        action = torch.tensor(numpy.array([data[1] for data in chosenData]), dtype=torch.float32).reshape(-1,1).to(self.device)
-        reward = torch.tensor(numpy.array([data[2] for data in chosenData]), dtype=torch.float32).reshape(-1,1).to(self.device)
-        state_ = torch.tensor(numpy.array([data[3] for data in chosenData]), dtype=torch.float32).reshape(-1,5,SCAN_RANGE+1,SCAN_RANGE+1).to(self.device)
-        over = torch.tensor(numpy.array([data[4] for data in chosenData]), dtype=torch.float32).reshape(-1,1).to(self.device)
-
-        reward = (reward - reward.mean()) / (reward.std() + 1e-5)
-        QValue = self.criticForward(state, action)
-
-        action_ = self.targetActorForward(state_)
-        QValue_ = self.targetCriticForward(state_, action_.reshape(-1, 1).to(self.device))
-        Target = reward + self.hyperParameters.gamma * QValue_ * (1 - over)
-        CriticLoss = self.lossFunction(QValue, Target)
-
-        self.criticOptimizer.zero_grad()
-        CriticLoss.backward()
-        self.criticOptimizer.step()
-        self.criticLoss.append(CriticLoss.item())
-
-        actionPre = self.actorForward(state)
-        QValue = self.criticForward(state, actionPre.reshape(-1, 1).to(self.device))
-        ActorLoss = -(QValue).mean()
-
-        self.actorOptimizer.zero_grad()
-        ActorLoss.backward()
-        self.actorOptimizer.step()
-        self.actorLoss.append(ActorLoss.item())
-
-        self.UpdateTargetNetWork(self.TargetActorModel, self.ActorModel)
-        self.UpdateTargetNetWork(self.TargetCriticModel, self.CriticModel)
-    
-    def getData(self, environment):
-        while len(self.dataStore) < self.hyperParameters.initStoreLen:
-            environment.reset()
-            state = environment.getState()
-            over = False
-            while not over:
-                action = self.getAction(state).detach().cpu().numpy()
-                state_, reward, over = environment.step(action)
-                self.dataStore.append((state, action, reward, state_, over))
-                state = state_
-
-    def play(self, environment, epoch):
-        environment.reset()
-        state = environment.getState()
-        over = False
-        while not over:
-            action = self.getAction(state).detach().cpu().numpy()
-            state_, reward, over = environment.step(action)
-            self.dataStore.append((state, action, reward, state_, over))
-            state = state_
-            self.reward.append(reward)
-
-        sumReward = sum(self.reward)
-        while len(self.dataStore) > self.hyperParameters.dataStoreLen:
-            self.dataStore.pop(0)
-        
-        print(f'Epoch: {epoch}, ActorLoss: {sum(self.actorLoss)}, CriticLoss: {sum(self.criticLoss)}, sumReward: {sum(self.reward)}')
-        self.initialize()
-        return sumReward
 
 class Environment():
     def __init__(self):
@@ -381,27 +179,289 @@ class Environment():
 
         return reward
 
+################################################################################
+
+class StateFeatureNetWork(torch.nn.Module):
+    def __init__(self, device) -> None:
+        super(StateFeatureNetWork,self).__init__()
+        self.device = device
+        self.netWork = torch.nn.Sequential(
+            torch.nn.Conv2d(5, 16, 5, 1, 1),
+            torch.nn.MaxPool2d(2),
+            torch.nn.Conv2d(16, 32, 5, 1, 1),
+            torch.nn.MaxPool2d(2),
+            torch.nn.Conv2d(32, 32, 5, 1, 1),
+            torch.nn.MaxPool2d(2),
+            torch.nn.Flatten(),
+            torch.nn.Linear(128, 20)
+        )
+        self.netWork.to(self.device)
+
+    def forward(self, state):
+        stateFeature = self.netWork(state)
+        return stateFeature
+
+class ActorNetWork(torch.nn.Module):
+    def __init__(self, device) -> None:
+        super(ActorNetWork,self).__init__()
+        self.device = device
+        self.netWork = torch.nn.Sequential(
+            torch.nn.Linear(20, 256),
+            torch.nn.ReLU(),
+            torch.nn.Linear(256, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 1),
+            torch.nn.Tanh()
+        )
+        self.netWork.to(self.device)
+
+    def forward(self, stateFeature):
+        action = self.netWork(stateFeature) * 180 + 180
+        return action
+
+class CriticNetWork(torch.nn.Module):
+    def __init__(self, device) -> None:
+        super(CriticNetWork,self).__init__()
+        self.device = device
+        self.netWork = torch.nn.Sequential(
+            torch.nn.Linear(21, 256),
+            torch.nn.ReLU(),
+            torch.nn.Linear(256, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 1)
+        )
+        self.netWork.to(self.device)
+
+    def forward(self, stateFeature, action):
+        tensor = torch.cat((stateFeature, action), 1)
+        value = self.netWork(tensor)
+        return value
+
+class DPGNetWork():
+    def __init__(self, device):
+        self.StateFeatureModel = StateFeatureNetWork(device)
+        self.ActorModel = ActorNetWork(device)
+        self.TargetActorModel = ActorNetWork(device)
+        self.CriticModel = CriticNetWork(device)
+        self.TargetCriticModel = CriticNetWork(device)
+
+        self.hyperParameters = HyperParameters()
+        self.actorOptimizer = torch.optim.Adam(self.ActorModel.parameters(), lr=self.hyperParameters.actorLr)
+        self.criticOptimizer = torch.optim.Adam(list(self.StateFeatureModel.parameters()) + list(self.CriticModel.parameters()), lr=self.hyperParameters.criticLr)
+        self.lossFunction = torch.nn.MSELoss()
+        self.dataStore = []
+        self.device = device
+        self.initialize()
+        self.InitialParameter()
+
+    def initialize(self):
+        self.reward = []
+        self.actorLoss = []
+        self.criticLoss = []
+
+    def InitialParameter(self):
+        self.TargetActorModel.load_state_dict(self.ActorModel.state_dict())
+        self.TargetCriticModel.load_state_dict(self.CriticModel.state_dict())
+
+    def saveModel(self, path):
+        torch.save({
+            'stateFeatureModel_state_dict': self.StateFeatureModel.state_dict(),
+            'CriticModel_state_dict': self.CriticModel.state_dict(),
+            'TargetCriticModel_state_dict': self.TargetCriticModel.state_dict(),
+            'ActorModel_state_dict': self.ActorModel.state_dict(),
+            'TargetActorModel_state_dict': self.TargetActorModel.state_dict(),
+        }, path)
+
+    def loadModel(self, path):
+        checkpoint = torch.load(path, weights_only=True)
+        self.StateFeatureModel.load_state_dict(checkpoint['stateFeatureModel_state_dict'])
+        self.CriticModel.load_state_dict(checkpoint['CriticModel_state_dict'])
+        self.TargetCriticModel.load_state_dict(checkpoint['TargetCriticModel_state_dict'])
+        self.ActorModel.load_state_dict(checkpoint['ActorModel_state_dict'])
+        self.TargetActorModel.load_state_dict(checkpoint['TargetActorModel_state_dict'])
+
+        self.StateFeatureModel.eval()
+        self.CriticModel.eval()
+        self.TargetCriticModel.eval()
+        self.ActorModel.eval()
+        self.TargetActorModel.eval()
+
+    def actorForward(self, state):
+        stateFeature = self.StateFeatureModel(state)
+        action = self.ActorModel(stateFeature)
+        return action
+    
+    def criticForward(self, state, action):
+        stateFeature = self.StateFeatureModel(state)
+        value = self.CriticModel(stateFeature, action)
+        return value
+    
+    def targetActorForward(self, state):
+        stateFeature = self.StateFeatureModel(state)
+        action = self.TargetActorModel(stateFeature)
+        return action
+
+    def targetCriticForward(self, state, action):
+        stateFeature = self.StateFeatureModel(state)
+        value = self.TargetCriticModel(stateFeature, action)
+        return value
+    
+    def getAction(self, state):
+        if random.random() < self.hyperParameters.epsilon:
+            action = torch.tensor(numpy.random.uniform(0, 360, 1), dtype=torch.float32).reshape(-1,1).to(self.device)
+        else:
+            state = torch.tensor(state, dtype=torch.float32).reshape(-1,5,SCAN_RANGE+1,SCAN_RANGE+1).to(self.device)
+            action = self.actorForward(state)
+        return action
+    
+    def UpdateTargetNetWork(self, TargetNetWork, NetWork):
+        for targetParam, param in zip(TargetNetWork.parameters(), NetWork.parameters()):
+            targetParam.data.copy_(0.005 * param.data + (1 - 0.005) * targetParam.data)
+
+    def getData(self, environment):
+        while len(self.dataStore) < self.hyperParameters.initStoreLen:
+            environment.reset()
+            state = environment.getState()
+            over = False
+            while not over:
+                action = self.getAction(state).detach().cpu().numpy()
+                state_, reward, over = environment.step(action)
+                self.dataStore.append((state, action, reward, state_, over))
+                state = state_
+
+    def DPGTrain(self):
+        chosenData = random.sample(self.dataStore, 64)
+        state = torch.tensor(numpy.array([data[0] for data in chosenData]), dtype=torch.float32).reshape(-1,5,SCAN_RANGE+1,SCAN_RANGE+1).to(self.device)
+        action = torch.tensor(numpy.array([data[1] for data in chosenData]), dtype=torch.float32).reshape(-1,1).to(self.device)
+        reward = torch.tensor(numpy.array([data[2] for data in chosenData]), dtype=torch.float32).reshape(-1,1).to(self.device)
+        state_ = torch.tensor(numpy.array([data[3] for data in chosenData]), dtype=torch.float32).reshape(-1,5,SCAN_RANGE+1,SCAN_RANGE+1).to(self.device)
+        over = torch.tensor(numpy.array([data[4] for data in chosenData]), dtype=torch.float32).reshape(-1,1).to(self.device)
+
+        reward = (reward - reward.mean()) / (reward.std() + 1e-5)
+        QValue = self.criticForward(state, action)
+
+        action_ = self.targetActorForward(state_)
+        QValue_ = self.targetCriticForward(state_, action_.reshape(-1, 1).to(self.device))
+        Target = reward + self.hyperParameters.gamma * QValue_ * (1 - over)
+        CriticLoss = self.lossFunction(QValue, Target)
+
+        self.criticOptimizer.zero_grad()
+        CriticLoss.backward()
+        self.criticOptimizer.step()
+        self.criticLoss.append(CriticLoss.item())
+
+        actionPre = self.actorForward(state)
+        QValue = self.criticForward(state, actionPre.reshape(-1, 1).to(self.device))
+        ActorLoss = -(QValue).mean()
+
+        self.actorOptimizer.zero_grad()
+        ActorLoss.backward()
+        self.actorOptimizer.step()
+        self.actorLoss.append(ActorLoss.item())
+
+        self.UpdateTargetNetWork(self.TargetActorModel, self.ActorModel)
+        self.UpdateTargetNetWork(self.TargetCriticModel, self.CriticModel)
+
+    def play(self, environment, epoch):
+        environment.reset()
+        state = environment.getState()
+        over = False
+        while not over:
+            action = self.getAction(state).detach().cpu().numpy()
+            state_, reward, over = environment.step(action)
+            self.dataStore.append((state, action, reward, state_, over))
+            state = state_
+            self.reward.append(reward)
+
+        sumReward = sum(self.reward)
+        while len(self.dataStore) > self.hyperParameters.dataStoreLen:
+            self.dataStore.pop(0)
+        
+        print(f'Epoch: {epoch}, ActorLoss: {sum(self.actorLoss)}, CriticLoss: {sum(self.criticLoss)}, sumReward: {sum(self.reward)}')
+        self.initialize()
+        return sumReward
+
+class Worker():
+    def __init__(self, DPGNet: DPGNetWork):
+        self.DPGNet = DPGNet
+        self.StateFeatureModel = StateFeatureNetWork(DPGNet.device)
+        self.ActorModel = ActorNetWork(DPGNet.device)
+        self.updateParameter()
+
+    def updateParameter(self):
+        self.StateFeatureModel.load_state_dict(self.DPGNet.StateFeatureModel.state_dict())
+        self.ActorModel.load_state_dict(self.DPGNet.ActorModel.state_dict())
+
+    def actorForward(self, state):
+        stateFeature = self.StateFeatureModel(state)
+        action = self.ActorModel(stateFeature)
+        return action
+
+    def getAction(self, state):
+        if random.random() < self.DPGNet.hyperParameters.epsilon:
+            action = torch.tensor(numpy.random.uniform(0, 360, 1), dtype=torch.float32).reshape(-1,1).to(self.DPGNet.device)
+        else:
+            state = torch.tensor(state, dtype=torch.float32).reshape(-1,5,SCAN_RANGE+1,SCAN_RANGE+1).to(self.DPGNet.device)
+            action = self.actorForward(state)
+        return action
+
+    def play(self, environment):
+        environment.reset()
+        state = environment.getState()
+        over = False
+        while not over:
+            action = self.getAction(state).detach().cpu().numpy()
+            state_, reward, over = environment.step(action)
+            self.DPGNet.dataStore.append((state, action, reward, state_, over))
+            state = state_
+
 def modelTrain():
-    DPGNet = ACNetWork("cuda")
+    def workerThread():
+        currentThread = threading.current_thread()
+        while not currentThread.StopEvent.is_set():
+            if currentThread.StartEvent.is_set():
+                worker = Worker(currentThread.DPGNet)
+                worker.play(Environment())
+                currentThread.JoinEvent.set()
+                currentThread.StartEvent.clear()
+
+    DPGNet = DPGNetWork("cuda")
     writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\PP-DPG')
+    globalEnvironment = Environment()
+    globalEnvironment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'DPG-figure-' + str(0) + '.png')
+    DPGNet.getData(globalEnvironment)
 
-    for mapIndex in range(10):
-        environment = Environment()
-        environment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'DPG-figure-' + str(0) + '.png')
-        DPGNet.hyperParameters.epsilon = 0.999
-        DPGNet.getData(environment)
-        for epoch in range(25000):
-            DPGNet.DPGTrain()
-            DPGNet.hyperParameters.epsilon = max(DPGNet.hyperParameters.epsilon * 0.9996, 0.05)
-            writer.add_scalar('reward-epoch', DPGNet.play(environment, epoch), epoch)
-            if (epoch + 1) % 5000 == 0:
-                DPGNet.saveModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'DPG-model-' + str(epoch + 1) + '.pth')
-                environment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'DPG-figure-' + str(epoch + 1) + '.png')
+    threads = []
+    for _ in range(DPGNet.hyperParameters.workerNum):
+        thread = threading.Thread(target=workerThread)
+        thread.StopEvent = threading.Event()
+        thread.StartEvent = threading.Event()
+        thread.JoinEvent = threading.Event()
+        threads.append(thread)
+        thread.start()
 
+    for epoch in range(100000):
+        for thread in threads:
+            thread.DPGNet = DPGNet
+            thread.StartEvent.set()
+        for thread in threads:
+            thread.JoinEvent.wait()
+            thread.JoinEvent.clear()
+
+        DPGNet.DPGTrain()
+        DPGNet.hyperParameters.epsilon = max(DPGNet.hyperParameters.epsilon * 0.9996, 0.05)
+        writer.add_scalar('reward-epoch', DPGNet.play(globalEnvironment, epoch), epoch)
+        if (epoch + 1) % 500 == 0:
+            DPGNet.saveModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'DPG-model-' + str(epoch + 1) + '.pth')
+            globalEnvironment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'DPG-figure-' + str(epoch + 1) + '.png')
+
+    for thread in threads:
+        thread.StopEvent.set()
+        thread.join()
     writer.close()
 
 def modelTest():
-    DPGNet = ACNetWork("cuda")
+    DPGNet = DPGNetWork("cuda")
     environment = Environment()
     modelName = 'DPG-model-15000.pth'
     DPGNet.loadModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + modelName)
