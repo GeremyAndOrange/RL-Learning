@@ -31,6 +31,7 @@ class HyperParameters():
         self.gamma = 0.99
         self.epsilon = 0.999
         self.dataStoreLen = 1000000
+        self.initStoreLen = 500
         self.workerNum = 4
 
 class Node:
