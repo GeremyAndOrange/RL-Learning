@@ -1,4 +1,5 @@
 import math
+import time
 import numpy
 import torch
 import random
@@ -417,14 +418,13 @@ class Worker():
             state = state_
 
 def modelTrain():
-    def workerThread():
-        currentThread = threading.current_thread()
-        while not currentThread.StopEvent.is_set():
-            if currentThread.StartEvent.is_set():
-                worker = Worker(currentThread.DPGNet)
+    def workerThread(DPGNet, StartEvent, JoinEvent, StopEvent):
+        while not StopEvent.is_set():
+            if StartEvent.is_set():
+                worker = Worker(DPGNet)
                 worker.play(Environment())
-                currentThread.JoinEvent.set()
-                currentThread.StartEvent.clear()
+                JoinEvent.set()
+                StartEvent.clear()
 
     DPGNet = DPGNetWork("cuda")
     writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\PP-DPG')
@@ -433,21 +433,19 @@ def modelTrain():
     DPGNet.getData(globalEnvironment)
 
     threads = []
+    StartEvent = [threading.Event() for _ in range(DPGNet.hyperParameters.workerNum)]
+    JoinEvents = [threading.Event() for _ in range(DPGNet.hyperParameters.workerNum)]
+    StopEvents = threading.Event()
     for _ in range(DPGNet.hyperParameters.workerNum):
-        thread = threading.Thread(target=workerThread)
-        thread.StopEvent = threading.Event()
-        thread.StartEvent = threading.Event()
-        thread.JoinEvent = threading.Event()
+        thread = threading.Thread(target=workerThread, args=(DPGNet, StartEvent[_], JoinEvents[_], StopEvents))
         threads.append(thread)
         thread.start()
 
     for epoch in range(100000):
-        for thread in threads:
-            thread.DPGNet = DPGNet
-            thread.StartEvent.set()
-        for thread in threads:
-            thread.JoinEvent.wait()
-            thread.JoinEvent.clear()
+        for StartEvent_ in StartEvent:
+            StartEvent_.set()
+        for JoinEvent in JoinEvents:
+            JoinEvent.wait()
 
         DPGNet.DPGTrain()
         DPGNet.hyperParameters.epsilon = max(DPGNet.hyperParameters.epsilon * 0.9996, 0.05)
@@ -456,8 +454,8 @@ def modelTrain():
             DPGNet.saveModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'DPG-model-' + str(epoch + 1) + '.pth')
             globalEnvironment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'DPG-figure-' + str(epoch + 1) + '.png')
 
+    StopEvents.set()
     for thread in threads:
-        thread.StopEvent.set()
         thread.join()
     writer.close()
 
