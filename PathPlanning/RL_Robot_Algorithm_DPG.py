@@ -425,6 +425,8 @@ def modelTrain():
                 worker.play(Environment())
                 JoinEvent.set()
                 StartEvent.clear()
+            else:
+                time.sleep(0.01)
 
     DPGNet = DPGNetWork("cuda")
     writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\PP-DPG')
