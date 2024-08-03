@@ -1,7 +1,9 @@
 import math
+import time
 import numpy
 import torch
 import random
+import threading
 import matplotlib.pyplot
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
@@ -31,7 +33,8 @@ class HyperParameters():
         self.gamma = 0.99
         self.gradEpsilon = 0.2
         self.gradClip = 0.5
-        self.dataStoreLen = 10000
+        self.dataStoreLen = 1000
+        self.workerNum = 4
         self.trainStep = 10
 
 class Node:
@@ -83,9 +86,104 @@ class MapInfo:
             node = node.parent
         return distance
 
+class Environment():
+    def __init__(self):
+        self.mapInfo = MapInfo()
+        self.nodes = [Node(START)]
+
+    def reset(self):
+        self.nodes = [Node(START)]
+
+    def step(self, action):
+        over = False
+        if numpy.linalg.norm(numpy.array(self.nodes[-1].point) - numpy.array(END)) < STEP_SIZE:
+            newNode = Node(list(END), self.nodes[-1])
+            self.nodes.append(newNode)
+            over = True
+        else:
+            newPoint = numpy.array(self.nodes[-1].point) + numpy.array([STEP_SIZE * math.cos(action.item() / 180 * math.pi), STEP_SIZE * math.sin(action.item() / 180 * math.pi)])
+            newNode = Node(list(newPoint), self.nodes[-1])
+            self.nodes.append(newNode)
+            if newPoint[0] >= 0 and newPoint[0] <= MAP_LENGTH and newPoint[1] >= 0 and newPoint[1] <= MAP_HEIGHT:
+                if self.mapInfo.CheckCollision(newNode):
+                    over = True
+            else:
+                over = True
+        reward = self.getReward()
+        state = self.getState()
+
+        if len(self.nodes) > MAX_NODES:
+            over = True
+        return state, reward, over
+
+    def render(self, path=None):
+        matplotlib.pyplot.figure(figsize=(10, 10))
+        finalPath = []
+        node = self.nodes[-1]
+        while node.parent is not None:
+            finalPath.append(node.point)
+            node = node.parent
+        finalPath.reverse()
+
+        for node in self.nodes:
+            if node.parent is not None and node not in finalPath:
+                matplotlib.pyplot.plot([int(node.point[0] / MAP_RESOLUTION), int(node.parent.point[0] / MAP_RESOLUTION)], [int(node.point[1] / MAP_RESOLUTION), int(node.parent.point[1] / MAP_RESOLUTION)], 'r-')
+
+        for item in range(len(finalPath) - 1):
+            matplotlib.pyplot.plot([int(finalPath[item][0] / MAP_RESOLUTION), int(finalPath[item + 1][0] / MAP_RESOLUTION)], [int(finalPath[item][1] / MAP_RESOLUTION), int(finalPath[item + 1][1] / MAP_RESOLUTION)], 'k-')
+
+        for row in range(len(self.mapInfo.mapInfo)):
+            for column in range(len(self.mapInfo.mapInfo[row])):
+                if self.mapInfo.mapInfo[row][column] == COLLISION:
+                    # 对每一个障碍物格子填色
+                    rectangle = matplotlib.pyplot.Rectangle((row, column), MAP_RESOLUTION, MAP_RESOLUTION, edgecolor='blue', facecolor='blue')
+                    matplotlib.pyplot.gca().add_patch(rectangle)
+            
+        matplotlib.pyplot.plot(int(START[0] / MAP_RESOLUTION), int(START[1] / MAP_RESOLUTION), 'go')
+        matplotlib.pyplot.plot(int(END[0] / MAP_RESOLUTION), int(END[1] / MAP_RESOLUTION), 'go')
+        matplotlib.pyplot.xlim(0, int(MAP_LENGTH / MAP_RESOLUTION + 1))
+        matplotlib.pyplot.ylim(0, int(MAP_HEIGHT / MAP_RESOLUTION + 1))
+        matplotlib.pyplot.gca().set_aspect('equal', adjustable='box')
+        if path is not None:
+            matplotlib.pyplot.savefig(path, dpi=1200)
+        else:
+            matplotlib.pyplot.show()
+
+    def getState(self):
+        positionInfo = [int(item / MAP_RESOLUTION) for item in self.nodes[-1].point]
+        state = [[0 for _ in range(SCAN_RANGE + 1)] for _ in range(SCAN_RANGE + 1)]
+
+        for x in range(SCAN_RANGE + 1):
+            for y in range(SCAN_RANGE + 1):
+                map_x = x+(positionInfo[0] - SCAN_RANGE//2)
+                map_y = y+(positionInfo[1] - SCAN_RANGE//2)
+                if map_x >= 0 and map_x <= int(MAP_LENGTH / MAP_RESOLUTION) and map_y >= 0 and map_y <= int(MAP_HEIGHT / MAP_RESOLUTION) :
+                    state[x][y] = self.mapInfo.mapInfo[map_x][map_y]
+                else:
+                    state[x][y] = OUT_MAP
+        state[SCAN_RANGE//2][SCAN_RANGE//2] = ROBOT
+        state = numpy.array(state)
+        selfMask1 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), positionInfo[0])
+        selfMask2 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), positionInfo[1])
+        endMask1 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), END[0])
+        endMask2 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), END[1])
+        finalState = numpy.dstack((state, selfMask1, selfMask2, endMask1, endMask2)).transpose((2, 0, 1))
+        return finalState
+
+    def getReward(self):
+        if self.nodes[-1].point == END:
+            reward = reward = (MAX_NODES - len(self.nodes)) * 0.1 + 50
+        elif (self.nodes[-1].point[0] >= 0 and self.nodes[-1].point[0] <= 50 and self.nodes[-1].point[1] >= 0 and self.nodes[-1].point[1] <= 50) and self.mapInfo.CheckCollision(self.nodes[-1]):
+            reward = -50
+        else:
+            oldDistance = numpy.linalg.norm(numpy.array(self.nodes[-2].point) - numpy.array(END))
+            newDistance = numpy.linalg.norm(numpy.array(self.nodes[-1].point) - numpy.array(END))
+            moveRate = (oldDistance - newDistance) / STEP_SIZE
+            reward = ALPHA * moveRate + 0.05
+
+        return reward
 ################################################################################
 
-# PPONetWork
 class StateFeatureNetWork(torch.nn.Module):
     def __init__(self, device) -> None:
         super(StateFeatureNetWork,self).__init__()
@@ -237,6 +335,7 @@ class PPONetWork():
         TargetNetWork.load_state_dict(NetWork.state_dict())
 
     def PPOTrain(self):
+        self.dataStore = self.dataStore[ : self.hyperParameters.workerNum * self.hyperParameters.dataStoreLen]
         oldState = torch.tensor(numpy.array([data[0] for data in self.dataStore]), dtype=torch.float32).reshape(-1,5,SCAN_RANGE+1,SCAN_RANGE+1).to(self.device)
         oldAction = torch.tensor(numpy.array([data[1] for data in self.dataStore]), dtype=torch.float32).reshape(-1,1).to(self.device)
         reward = torch.tensor(numpy.array([data[2] for data in self.dataStore]), dtype=torch.float32).reshape(-1,1).to(self.device)
@@ -277,135 +376,94 @@ class PPONetWork():
     def play(self, environment, epoch):
         environment.reset()
         state = environment.getState()
-        over, printFlag = False, False
+        over = False
         while not over:
             action, logProb = self.OldActorForward(state)
             state_, reward, over = environment.step(action)
-            self.dataStore.append((state, action.item(), reward, state_, logProb))
-            if len(self.dataStore) >= self.hyperParameters.dataStoreLen:
-                self.PPOTrain()
-                printFlag = True
-
             state = state_
             self.reward.append(reward)
 
         sumReward = sum(self.reward)
-        if printFlag == True:
-            print(f'Epoch: {epoch}, ActorLoss: {sum(self.actorLoss)}, CriticLoss: {sum(self.criticLoss)}, Reward: {sumReward}')
-
+        print(f'Epoch: {epoch}, ActorLoss: {sum(self.actorLoss)}, CriticLoss: {sum(self.criticLoss)}, Reward: {sumReward}')
         self.initialize()
         return sumReward
 
-class Environment():
-    def __init__(self):
-        self.mapInfo = MapInfo()
-        self.nodes = [Node(START)]
-
-    def reset(self):
-        self.nodes = [Node(START)]
-
-    def step(self, action):
-        over = False
-        if numpy.linalg.norm(numpy.array(self.nodes[-1].point) - numpy.array(END)) < STEP_SIZE:
-            newNode = Node(list(END), self.nodes[-1])
-            self.nodes.append(newNode)
-            over = True
-        else:
-            newPoint = numpy.array(self.nodes[-1].point) + numpy.array([STEP_SIZE * math.cos(action.item() / 180 * math.pi), STEP_SIZE * math.sin(action.item() / 180 * math.pi)])
-            newNode = Node(list(newPoint), self.nodes[-1])
-            self.nodes.append(newNode)
-            if newPoint[0] >= 0 and newPoint[0] <= MAP_LENGTH and newPoint[1] >= 0 and newPoint[1] <= MAP_HEIGHT:
-                if self.mapInfo.CheckCollision(newNode):
-                    over = True
-            else:
-                over = True
-        reward = self.getReward()
-        state = self.getState()
-
-        if len(self.nodes) > MAX_NODES:
-            over = True
-        return state, reward, over
-
-    def render(self, path=None):
-        matplotlib.pyplot.figure(figsize=(10, 10))
-        finalPath = []
-        node = self.nodes[-1]
-        while node.parent is not None:
-            finalPath.append(node.point)
-            node = node.parent
-        finalPath.reverse()
-
-        for node in self.nodes:
-            if node.parent is not None and node not in finalPath:
-                matplotlib.pyplot.plot([int(node.point[0] / MAP_RESOLUTION), int(node.parent.point[0] / MAP_RESOLUTION)], [int(node.point[1] / MAP_RESOLUTION), int(node.parent.point[1] / MAP_RESOLUTION)], 'r-')
-
-        for item in range(len(finalPath) - 1):
-            matplotlib.pyplot.plot([int(finalPath[item][0] / MAP_RESOLUTION), int(finalPath[item + 1][0] / MAP_RESOLUTION)], [int(finalPath[item][1] / MAP_RESOLUTION), int(finalPath[item + 1][1] / MAP_RESOLUTION)], 'k-')
-
-        for row in range(len(self.mapInfo.mapInfo)):
-            for column in range(len(self.mapInfo.mapInfo[row])):
-                if self.mapInfo.mapInfo[row][column] == COLLISION:
-                    # 对每一个障碍物格子填色
-                    rectangle = matplotlib.pyplot.Rectangle((row, column), MAP_RESOLUTION, MAP_RESOLUTION, edgecolor='blue', facecolor='blue')
-                    matplotlib.pyplot.gca().add_patch(rectangle)
-            
-        matplotlib.pyplot.plot(int(START[0] / MAP_RESOLUTION), int(START[1] / MAP_RESOLUTION), 'go')
-        matplotlib.pyplot.plot(int(END[0] / MAP_RESOLUTION), int(END[1] / MAP_RESOLUTION), 'go')
-        matplotlib.pyplot.xlim(0, int(MAP_LENGTH / MAP_RESOLUTION + 1))
-        matplotlib.pyplot.ylim(0, int(MAP_HEIGHT / MAP_RESOLUTION + 1))
-        matplotlib.pyplot.gca().set_aspect('equal', adjustable='box')
-        if path is not None:
-            matplotlib.pyplot.savefig(path, dpi=1200)
-        else:
-            matplotlib.pyplot.show()
-
-    def getState(self):
-        positionInfo = [int(item / MAP_RESOLUTION) for item in self.nodes[-1].point]
-        state = [[0 for _ in range(SCAN_RANGE + 1)] for _ in range(SCAN_RANGE + 1)]
-
-        for x in range(SCAN_RANGE + 1):
-            for y in range(SCAN_RANGE + 1):
-                map_x = x+(positionInfo[0] - SCAN_RANGE//2)
-                map_y = y+(positionInfo[1] - SCAN_RANGE//2)
-                if map_x >= 0 and map_x <= int(MAP_LENGTH / MAP_RESOLUTION) and map_y >= 0 and map_y <= int(MAP_HEIGHT / MAP_RESOLUTION) :
-                    state[x][y] = self.mapInfo.mapInfo[map_x][map_y]
-                else:
-                    state[x][y] = OUT_MAP
-        state[SCAN_RANGE//2][SCAN_RANGE//2] = ROBOT
-        state = numpy.array(state)
-        selfMask1 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), positionInfo[0])
-        selfMask2 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), positionInfo[1])
-        endMask1 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), END[0])
-        endMask2 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), END[1])
-        finalState = numpy.dstack((state, selfMask1, selfMask2, endMask1, endMask2)).transpose((2, 0, 1))
-        return finalState
-
-    def getReward(self):
-        if self.nodes[-1].point == END:
-            reward = reward = (MAX_NODES - len(self.nodes)) * 0.1 + 50
-        elif (self.nodes[-1].point[0] >= 0 and self.nodes[-1].point[0] <= 50 and self.nodes[-1].point[1] >= 0 and self.nodes[-1].point[1] <= 50) and self.mapInfo.CheckCollision(self.nodes[-1]):
-            reward = -50
-        else:
-            oldDistance = numpy.linalg.norm(numpy.array(self.nodes[-2].point) - numpy.array(END))
-            newDistance = numpy.linalg.norm(numpy.array(self.nodes[-1].point) - numpy.array(END))
-            moveRate = (oldDistance - newDistance) / STEP_SIZE
-            reward = ALPHA * moveRate + 0.05
-
-        return reward
+class Worker():
+    def __init__(self, PPONet: PPONetWork):
+        self.PPONet = PPONet
+        self.StateFeatureModel = StateFeatureNetWork(PPONet.device)
+        self.ActorMuModel = ActorNetWorkMu(PPONet.device)
+        self.ActorSigmaModel = ActorNetWorkSigma(PPONet.device)
+        self.updateParameter()
+    
+    def updateParameter(self):
+        self.StateFeatureModel.load_state_dict(self.PPONet.StateFeatureModel.state_dict())
+        self.ActorMuModel.load_state_dict(self.PPONet.OldActorMuModel.state_dict())
+        self.ActorSigmaModel.load_state_dict(self.PPONet.OldActorSigmaModel.state_dict())
+    
+    def getAction(self, state):
+        state = torch.tensor(state, dtype=torch.float32).reshape(-1,5,SCAN_RANGE+1,SCAN_RANGE+1).to(self.PPONet.device)
+        stateFeature = self.StateFeatureModel(state)
+        Mu, Sigma = self.ActorMuModel(stateFeature), self.ActorSigmaModel(stateFeature) + 1e-5
+        distribution = torch.distributions.Normal(Mu, Sigma)
+        action = distribution.sample().clamp(0, 360).reshape(-1, 1)
+        logProb = distribution.log_prob(action).reshape(-1, 1)
+        return action, logProb
+    
+    def play(self, environment):
+        count = 0
+        while count < self.PPONet.hyperParameters.dataStoreLen:
+            environment.reset()
+            state = environment.getState()
+            over = False
+            while not over:
+                action, logProb = self.getAction(state)
+                state_, reward, over = environment.step(action)
+                self.PPONet.dataStore.append((state, action.item(), reward, state_, logProb))
+                state = state_
+                count += 1
 
 def modelTrain():
+    def workerThread(PPONet, StartEvent, JoinEvent, StopEvent):
+        while not StopEvent.is_set():
+            if StartEvent.is_set():
+                worker = Worker(PPONet)
+                worker.play(Environment())
+                JoinEvent.set()
+                StartEvent.clear()
+            else:
+                time.sleep(0.05)
+
     PPONet = PPONetWork("cuda")
     writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\PP-PPO')
+    globalEnvironment = Environment()
+    globalEnvironment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'DPG-figure-' + str(0) + '.png')
 
-    for mapIndex in range(10):
-        environment = Environment()
-        environment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'PPO-figure-' + str(0) + '.png')
-        for epoch in range(50000):
-            writer.add_scalar('reward-epoch', PPONet.play(environment, epoch), epoch)
-            if (epoch + 1) % 5000 == 0:
-                PPONet.saveModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'PPO-model-' + str(epoch + 1) + '.pth')
-                environment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'PPO-figure-' + str(epoch + 1) + '.png')
+    threads = []
+    StartEvent = [threading.Event() for _ in range(PPONet.hyperParameters.workerNum)]
+    JoinEvents = [threading.Event() for _ in range(PPONet.hyperParameters.workerNum)]
+    StopEvents = threading.Event()
+    for _ in range(PPONet.hyperParameters.workerNum):
+        thread = threading.Thread(target=workerThread, args=(PPONet, StartEvent[_], JoinEvents[_], StopEvents))
+        threads.append(thread)
+        thread.start()
+   
+    for epoch in range(100000):
+        for StartEvent_ in StartEvent:
+            StartEvent_.set()
+        for JoinEvent in JoinEvents:
+            JoinEvent.wait()
+            JoinEvent.clear()
+        
+        PPONet.PPOTrain()
+        writer.add_scalar('reward-epoch', PPONet.play(globalEnvironment, epoch), epoch)
+        if (epoch + 1) % 500 == 0:
+            PPONet.saveModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'PPO-model-' + str(epoch + 1) + '.pth')
+            globalEnvironment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'PPO-figure-' + str(epoch + 1) + '.png')
 
+    StopEvents.set()
+    for thread in threads:
+        thread.join()
     writer.close()
 
 def modelTest():

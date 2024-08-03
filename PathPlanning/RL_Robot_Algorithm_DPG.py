@@ -448,6 +448,7 @@ def modelTrain():
             StartEvent_.set()
         for JoinEvent in JoinEvents:
             JoinEvent.wait()
+            JoinEvent.clear()
 
         DPGNet.DPGTrain()
         DPGNet.hyperParameters.epsilon = max(DPGNet.hyperParameters.epsilon * 0.9996, 0.05)
