@@ -418,15 +418,17 @@ class Worker():
             state = state_
 
 def modelTrain():
-    def workerThread(DPGNet, StartEvent, JoinEvent, StopEvent):
+    def workerThread(DPGNet, StartEvent, JoinEvent, StopEvent, localEnvironment=None):
         while not StopEvent.is_set():
             if StartEvent.is_set():
                 worker = Worker(DPGNet)
-                worker.play(Environment())
+                if localEnvironment == None:
+                    localEnvironment = Environment()
+                worker.play(localEnvironment)
                 JoinEvent.set()
                 StartEvent.clear()
-            else:
-                time.sleep(0.02)
+            else: 
+                time.sleep(0.05)
 
     DPGNet = DPGNetWork("cuda")
     writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\PP-DPG')
@@ -439,7 +441,7 @@ def modelTrain():
     JoinEvents = [threading.Event() for _ in range(DPGNet.hyperParameters.workerNum)]
     StopEvents = threading.Event()
     for _ in range(DPGNet.hyperParameters.workerNum):
-        thread = threading.Thread(target=workerThread, args=(DPGNet, StartEvent[_], JoinEvents[_], StopEvents))
+        thread = threading.Thread(target=workerThread, args=(DPGNet, StartEvent[_], JoinEvents[_], StopEvents, globalEnvironment))
         threads.append(thread)
         thread.start()
 
