@@ -478,7 +478,7 @@ def modelTest():
     DPGNet = DPGNetWork("cuda")
     environment = Environment()
     modelName = 'DPG-model-75000_1.pth'
-    DPGNet.loadModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\saveModel' + modelName)
+    DPGNet.loadModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\saveModel\\' + modelName)
 
     DPGNet.hyperParameters.epsilon = 0
     DPGNet.play(environment, 0)
@@ -487,17 +487,17 @@ def modelTest():
 def modelContinueTrain():
     DPGNet = DPGNetWork("cuda")
     modelName = 'DPG-model-75000_1.pth'
-    DPGNet.loadModelTrain('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\saveModel' + modelName)
+    DPGNet.loadModelTrain('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\saveModel\\' + modelName)
     modelTrain(DPGNet)
 
 # main
 def main():
-    typeParameter = 0
+    typeParameter = 2
     if typeParameter == 0:
         modelTrain()
     if typeParameter == 1:
         modelTest()
-    if typeParameter == 3:
+    if typeParameter == 2:
         modelContinueTrain()
 
     return
