@@ -287,6 +287,14 @@ class DPGNetWork():
         self.TargetCriticModel.eval()
         self.ActorModel.eval()
         self.TargetActorModel.eval()
+    
+    def loadModelTrain(self, path):
+        checkpoint = torch.load(path, weights_only=True)
+        self.StateFeatureModel.load_state_dict(checkpoint['stateFeatureModel_state_dict'])
+        self.CriticModel.load_state_dict(checkpoint['CriticModel_state_dict'])
+        self.TargetCriticModel.load_state_dict(checkpoint['TargetCriticModel_state_dict'])
+        self.ActorModel.load_state_dict(checkpoint['ActorModel_state_dict'])
+        self.TargetActorModel.load_state_dict(checkpoint['TargetActorModel_state_dict'])
 
     def actorForward(self, state):
         stateFeature = self.StateFeatureModel(state)
@@ -417,7 +425,7 @@ class Worker():
             self.DPGNet.dataStore.append((state, action, reward, state_, over))
             state = state_
 
-def modelTrain():
+def modelTrain(DPGNet=None):
     def workerThread(DPGNet, StartEvent, JoinEvent, StopEvent, localEnvironment=None):
         while not StopEvent.is_set():
             if StartEvent.is_set():
@@ -430,7 +438,9 @@ def modelTrain():
             else: 
                 time.sleep(0.05)
 
-    DPGNet = DPGNetWork("cuda")
+    if DPGNet is None:
+        DPGNet = DPGNetWork("cuda")
+
     writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\PP-DPG')
     globalEnvironment = Environment()
     globalEnvironment.render('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + 'DPG-figure-' + str(0) + '.png')
@@ -467,12 +477,18 @@ def modelTrain():
 def modelTest():
     DPGNet = DPGNetWork("cuda")
     environment = Environment()
-    modelName = 'DPG-model-15000.pth'
-    DPGNet.loadModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\' + modelName)
+    modelName = 'DPG-model-75000_1.pth'
+    DPGNet.loadModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\saveModel' + modelName)
 
     DPGNet.hyperParameters.epsilon = 0
     DPGNet.play(environment, 0)
     environment.render()
+
+def modelContinueTrain():
+    DPGNet = DPGNetWork("cuda")
+    modelName = 'DPG-model-75000_1.pth'
+    DPGNet.loadModelTrain('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\saveModel' + modelName)
+    modelTrain(DPGNet)
 
 # main
 def main():
@@ -481,6 +497,8 @@ def main():
         modelTrain()
     if typeParameter == 1:
         modelTest()
+    if typeParameter == 3:
+        modelContinueTrain()
 
     return
 
