@@ -31,9 +31,9 @@ class HyperParameters():
         self.criticLr = 3e-4
         self.gamma = 0.99
         self.epsilon = 0.999
-        self.dataStoreLen = 1000000
+        self.dataStoreLen = 500000
         self.initStoreLen = 500
-        self.workerNum = 4
+        self.workerNum = 8
 
 class Node:
     def __init__(self, point, parent = None):
@@ -451,7 +451,7 @@ def modelTrain(DPGNet=None):
     JoinEvents = [threading.Event() for _ in range(DPGNet.hyperParameters.workerNum)]
     StopEvents = threading.Event()
     for _ in range(DPGNet.hyperParameters.workerNum):
-        thread = threading.Thread(target=workerThread, args=(DPGNet, StartEvent[_], JoinEvents[_], StopEvents, globalEnvironment))
+        thread = threading.Thread(target=workerThread, args=(DPGNet, StartEvent[_], JoinEvents[_], StopEvents))
         threads.append(thread)
         thread.start()
 
@@ -486,7 +486,7 @@ def modelTest():
 
 def modelContinueTrain():
     DPGNet = DPGNetWork("cuda")
-    modelName = 'DPG-model-75000_1.pth'
+    modelName = 'DPG-model-85000_3.pth'
     DPGNet.loadModelTrain('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\saveModel\\' + modelName)
     modelTrain(DPGNet)
 
