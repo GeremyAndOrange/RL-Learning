@@ -12,28 +12,29 @@ START = [2, 2]          # 起点坐标
 END = [48, 48]          # 终点坐标
 MAX_NODES = 500         # 节点最大数量
 STEP_SIZE = 0.5         # 步长
-OBSTACLE_NUM = 9        # 障碍物数量
+OBSTACLE_NUM = 12       # 障碍物数量
 OBSTACLE_RADIUS = 4     # 障碍物半径
 MAP_LENGTH = 50         # 地图长度
 MAP_HEIGHT = 50         # 地图宽度
 MAP_RESOLUTION = 0.5    # 地图分辨率
 SCAN_RANGE = 31         # 智能体扫描范围
-ALPHA = 1               # 奖励权重
+ALPHA = 1.1             # 奖励权重
 
 # enumeration value
-COLLISION = 127
-ROBOT = 255
+COLLISION = 1
+ROBOT = 15
 OUT_MAP = -1
 
 class HyperParameters():
     def __init__(self):
-        self.actorLr = 2e-4
-        self.criticLr = 3e-4
+        self.actorLr = 3e-4
+        self.criticLr = 4e-4
         self.gamma = 0.99
         self.epsilon = 0.999
-        self.dataStoreLen = 500000
+        self.rewardChangeRate = 0.02
+        self.dataStoreLen = 1000000
         self.initStoreLen = 500
-        self.workerNum = 8
+        self.workerNum = 10
 
 class Node:
     def __init__(self, point, parent = None):
@@ -94,10 +95,12 @@ class Environment():
 
     def step(self, action):
         over = False
+        finished = False
         if numpy.linalg.norm(numpy.array(self.nodes[-1].point) - numpy.array(END)) < STEP_SIZE:
             newNode = Node(list(END), self.nodes[-1])
             self.nodes.append(newNode)
             over = True
+            finished = True
         else:
             newPoint = numpy.array(self.nodes[-1].point) + numpy.array([STEP_SIZE * math.cos(action.item() / 180 * math.pi), STEP_SIZE * math.sin(action.item() / 180 * math.pi)])
             newNode = Node(list(newPoint), self.nodes[-1])
@@ -112,7 +115,7 @@ class Environment():
 
         if len(self.nodes) > MAX_NODES:
             over = True
-        return state, reward, over
+        return state, reward, over, finished
 
     def render(self, path=None):
         matplotlib.pyplot.figure(figsize=(10, 10))
@@ -163,16 +166,16 @@ class Environment():
         state = numpy.array(state)
         selfMask1 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), positionInfo[0])
         selfMask2 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), positionInfo[1])
-        endMask1 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), END[0])
-        endMask2 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), END[1])
-        finalState = numpy.dstack((state, selfMask1, selfMask2, endMask1, endMask2)).transpose((2, 0, 1))
+        endMask1 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), int(END[0] / MAP_RESOLUTION))
+        endMask2 = numpy.full((SCAN_RANGE + 1, SCAN_RANGE + 1), int(END[1] / MAP_RESOLUTION))
+        finalState = numpy.dstack((selfMask1, selfMask2, state, endMask1, endMask2)).transpose((2, 0, 1))
         return finalState
 
     def getReward(self):
         if self.nodes[-1].point == END:
             reward = (MAX_NODES - len(self.nodes)) * 0.1 + 50
-        elif (self.nodes[-1].point[0] >= 0 and self.nodes[-1].point[0] <= 50 and self.nodes[-1].point[1] >= 0 and self.nodes[-1].point[1] <= 50) and self.mapInfo.CheckCollision(self.nodes[-1]):
-            reward = -50
+        elif self.mapInfo.CheckCollision(self.nodes[-1]):
+            reward = (len(self.nodes) - MAX_NODES) * 0.1 - 50
         else:
             oldDistance = numpy.linalg.norm(numpy.array(self.nodes[-2].point) - numpy.array(END))
             newDistance = numpy.linalg.norm(numpy.array(self.nodes[-1].point) - numpy.array(END))
@@ -195,7 +198,9 @@ class StateFeatureNetWork(torch.nn.Module):
             torch.nn.Conv2d(32, 32, 5, 1, 1),
             torch.nn.MaxPool2d(2),
             torch.nn.Flatten(),
-            torch.nn.Linear(128, 20)
+            torch.nn.Linear(128, 32),
+            torch.nn.ReLU(),
+            torch.nn.Linear(32, 1)
         )
         self.netWork.to(self.device)
 
@@ -208,7 +213,7 @@ class ActorNetWork(torch.nn.Module):
         super(ActorNetWork,self).__init__()
         self.device = device
         self.netWork = torch.nn.Sequential(
-            torch.nn.Linear(20, 256),
+            torch.nn.Linear(1, 256),
             torch.nn.ReLU(),
             torch.nn.Linear(256, 64),
             torch.nn.ReLU(),
@@ -226,7 +231,7 @@ class CriticNetWork(torch.nn.Module):
         super(CriticNetWork,self).__init__()
         self.device = device
         self.netWork = torch.nn.Sequential(
-            torch.nn.Linear(21, 256),
+            torch.nn.Linear(2, 256),
             torch.nn.ReLU(),
             torch.nn.Linear(256, 64),
             torch.nn.ReLU(),
@@ -256,6 +261,9 @@ class DPGNetWork():
         self.initialize()
         self.InitialParameter()
 
+        self.lastReward = 0
+        self.lastGame = False
+
     def initialize(self):
         self.reward = []
         self.actorLoss = []
@@ -275,20 +283,6 @@ class DPGNetWork():
         }, path)
 
     def loadModel(self, path):
-        checkpoint = torch.load(path, weights_only=True)
-        self.StateFeatureModel.load_state_dict(checkpoint['stateFeatureModel_state_dict'])
-        self.CriticModel.load_state_dict(checkpoint['CriticModel_state_dict'])
-        self.TargetCriticModel.load_state_dict(checkpoint['TargetCriticModel_state_dict'])
-        self.ActorModel.load_state_dict(checkpoint['ActorModel_state_dict'])
-        self.TargetActorModel.load_state_dict(checkpoint['TargetActorModel_state_dict'])
-
-        self.StateFeatureModel.eval()
-        self.CriticModel.eval()
-        self.TargetCriticModel.eval()
-        self.ActorModel.eval()
-        self.TargetActorModel.eval()
-    
-    def loadModelTrain(self, path):
         checkpoint = torch.load(path, weights_only=True)
         self.StateFeatureModel.load_state_dict(checkpoint['stateFeatureModel_state_dict'])
         self.CriticModel.load_state_dict(checkpoint['CriticModel_state_dict'])
@@ -326,7 +320,7 @@ class DPGNetWork():
     
     def UpdateTargetNetWork(self, TargetNetWork, NetWork):
         for targetParam, param in zip(TargetNetWork.parameters(), NetWork.parameters()):
-            targetParam.data.copy_(0.005 * param.data + (1 - 0.005) * targetParam.data)
+            targetParam.data.copy_(0.05 * param.data + (1 - 0.05) * targetParam.data)
 
     def getData(self, environment):
         while len(self.dataStore) < self.hyperParameters.initStoreLen:
@@ -335,7 +329,7 @@ class DPGNetWork():
             over = False
             while not over:
                 action = self.getAction(state).detach().cpu().numpy()
-                state_, reward, over = environment.step(action)
+                state_, reward, over, finished = environment.step(action)
                 self.dataStore.append((state, action, reward, state_, over))
                 state = state_
 
@@ -378,7 +372,7 @@ class DPGNetWork():
         over = False
         while not over:
             action = self.getAction(state).detach().cpu().numpy()
-            state_, reward, over = environment.step(action)
+            state_, reward, over, finished = environment.step(action)
             self.dataStore.append((state, action, reward, state_, over))
             state = state_
             self.reward.append(reward)
@@ -388,8 +382,19 @@ class DPGNetWork():
             self.dataStore.pop(0)
         
         print(f'Epoch: {epoch}, ActorLoss: {sum(self.actorLoss)}, CriticLoss: {sum(self.criticLoss)}, sumReward: {sum(self.reward)}')
+        self.lastReward = sum(self.reward)
+        self.lastGame = finished
         self.initialize()
         return sumReward
+    
+    def correctEpsilon(self):
+        if self.lastReward == 0:
+            self.hyperParameters.epsilon = max(self.hyperParameters.epsilon * 0.9996, 0.05)
+            return
+        if self.lastGame:
+            return
+        if (sum(self.reward) - self.lastReward) / self.lastReward < self.hyperParameters.rewardChangeRate:
+            self.hyperParameters.epsilon = max(self.hyperParameters.epsilon * 1.0004, 0.05)
 
 class Worker():
     def __init__(self, DPGNet: DPGNetWork):
@@ -421,7 +426,7 @@ class Worker():
         over = False
         while not over:
             action = self.getAction(state).detach().cpu().numpy()
-            state_, reward, over = environment.step(action)
+            state_, reward, over, finished = environment.step(action)
             self.DPGNet.dataStore.append((state, action, reward, state_, over))
             state = state_
 
@@ -436,7 +441,7 @@ def modelTrain(DPGNet=None):
                 JoinEvent.set()
                 StartEvent.clear()
             else: 
-                time.sleep(0.05)
+                time.sleep(0.1)
 
     if DPGNet is None:
         DPGNet = DPGNetWork("cuda")
@@ -487,7 +492,7 @@ def modelTest():
 def modelContinueTrain():
     DPGNet = DPGNetWork("cuda")
     modelName = 'DPG-model-85000_3.pth'
-    DPGNet.loadModelTrain('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\saveModel\\' + modelName)
+    DPGNet.loadModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\saveModel\\' + modelName)
     modelTrain(DPGNet)
 
 # main
