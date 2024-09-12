@@ -101,7 +101,7 @@ def Reinforce(writer):
     writer.close()
 
 def main():
-    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\CartPole-ReinforceWithBaseline')  
+    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Gym\\Log\\CartPole-ReinforceWithBaseline')  
     Reinforce(writer)
 
 if __name__ == "__main__":

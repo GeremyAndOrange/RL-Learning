@@ -106,7 +106,7 @@ def play(environment, SPGNet, epoch):
     return totalReward
 
 def main():
-    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\Pendulum-SPG')  
+    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Gym\\Log\\Pendulum-SPG')  
     SPG(writer)
 
 if __name__ == "__main__":

@@ -156,7 +156,7 @@ def play(environment, DoubleDQNet, dataPool, epoch):
     return sumReaward
 
 def main():
-    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\CartPole-DDQN')  
+    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Gym\\Log\\CartPole-DDQN')  
     DoubleDQN(writer)
 
 if __name__ == "__main__":

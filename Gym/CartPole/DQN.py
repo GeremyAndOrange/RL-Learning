@@ -123,7 +123,7 @@ def play(environment, DeePQNet, dataPool, epoch):
     return sumReaward
 
 def main():
-    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\CartPole-DQN')  
+    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Gym\\Log\\CartPole-DQN')  
     DQN(writer)
 
 if __name__ == "__main__":

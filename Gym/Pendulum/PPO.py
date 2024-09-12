@@ -158,7 +158,7 @@ def play(environment, PPONet, epoch):
     return totalReward
 
 def main():
-    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\Pendulum-PPO')  
+    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Gym\\Log\\Pendulum-PPO')  
     PPO(writer)
 
 if __name__ == "__main__":

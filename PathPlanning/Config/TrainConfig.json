@@ -1,0 +1,38 @@
+{
+    "MapConfig": {
+        "MapWidth": 50,
+        "MapHeight": 50,
+        "MapResolution": 0.5,
+        "ObstacleNumber": 12,
+        "ObstacleRange": 4,
+        "StartPoint": [
+            5,
+            5
+        ],
+        "EndPoint": [
+            45,
+            45
+        ]
+    },
+    "EnviromentConfig": {
+        "MaxSteps": 500,
+        "ScanRange": 50,
+        "StepLength": 0.5,
+        "RewardAlpha": 0.1,
+        "RewardBeta": 0.1,
+        "RewardGamma": 0.1
+    },
+    "HyperParameters": {
+        "ActorLearningRate": 0.0003,
+        "CriticLearningRate": 0.0004,
+        "DiscountRate": 0.99,
+        "DataSelect": 64,
+        "UpdateNumber": 10,
+        "ClampValue": 0.2,
+        "ClipValue": 0.5,
+        "DataMax": 100000,
+        "WorkerNumber": 10,
+        "ScanRange": 50,
+        "TrainEpoch": 200000
+    }
+}

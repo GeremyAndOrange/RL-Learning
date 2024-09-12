@@ -169,7 +169,7 @@ def play(environment, DPGNet, dataPool, epoch):
     return totalReward
 
 def main():
-    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\Pendulum-DPG')  
+    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Gym\\Log\\Pendulum-DPG')  
     DPG(writer)
 
 if __name__ == "__main__":

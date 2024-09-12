@@ -191,7 +191,7 @@ class DQNNetWork():
 def main():
     DeepQNet = DQNNetWork("cuda")
     environment = gym.make('Tennis-v4', render_mode="rgb_array")
-    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\Tnnies-DQN')
+    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Gym\\Log\\Tnnies-DQN')
     DeepQNet.getData(environment)
 
     for epoch in range(100000):
@@ -199,7 +199,7 @@ def main():
         DeepQNet.DQNtrain()
         writer.add_scalar('reward-epoch', DeepQNet.play(environment, epoch), epoch)
         if epoch + 1 % 1000 == 0:
-            DeepQNet.saveModel('C:\\Users\\60520\\Desktop\\RL-learning\\Tennis\\' + 'model-' + str(epoch + 1) + '.pth')
+            DeepQNet.saveModel('C:\\Users\\60520\\Desktop\\RL-learning\\Gym\\Tennis\\' + 'model-' + str(epoch + 1) + '.pth')
 
 if __name__ == '__main__':
     main()

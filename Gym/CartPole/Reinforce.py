@@ -73,7 +73,7 @@ def Reinforce(writer):
     writer.close()
 
 def main():
-    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Log\\CartPole-Reinforce')  
+    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\Gym\\Log\\CartPole-Reinforce')  
     Reinforce(writer)
 
 if __name__ == "__main__":
