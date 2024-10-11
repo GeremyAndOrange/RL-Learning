@@ -42,6 +42,6 @@ def render(map_class, pic_name, nodes) -> None:
     matplotlib.pyplot.ylim(0, int(map_class.height / map_class.resolution + 1))
     matplotlib.pyplot.gca().set_aspect('equal', adjustable='box')
     
-    path = "C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Map\\" + pic_name + ".png"
+    path = "Map/" + pic_name + ".png"
     matplotlib.pyplot.savefig(path, dpi=1200)
     return

@@ -11,7 +11,7 @@ def modelTrain(path=None):
     if path is not None:
         PPnets.main_net.LoadModel(path)
     
-    writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Log')
+    writer = SummaryWriter('Log')
     global_environment = Enviroment.EnviromentClass()
     global_environment.ResetEnviroment(1,"GlobalPic_a")
     Utils.render(global_environment.map_class, "GlobalPic_a", global_environment.nodes)
@@ -27,17 +27,18 @@ def modelTrain(path=None):
         thread.start()
 
     for epoch in range(PPnets.main_net.hyper_parameter.train_epoch):
-        for StartEvent_ in StartEvent:
-            StartEvent_.set()
-        for JoinEvent in JoinEvents:
-            JoinEvent.wait()
-            JoinEvent.clear()
+        while PPnets.main_net.data_store.Length() < PPnets.main_net.hyper_parameter.data_max:
+            for StartEvent_ in StartEvent:
+                StartEvent_.set()
+            for JoinEvent in JoinEvents:
+                JoinEvent.wait()
+                JoinEvent.clear()
 
         PPnets.main_net.TrainNet()
         writer.add_scalar('reward-epoch', PPnets.main_net.PlayGame(global_environment, epoch, 1), epoch)
-        if (epoch + 1) % 5000 == 0:
-            PPnets.main_net.SaveModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\SaveModel\\' + 'DPG-model-' + str(epoch + 1) + '.pth')
-            Utils.render(global_environment.map_class, 'PPfigure_' + str(epoch + 1) + '.png', global_environment.nodes)
+        if (epoch + 1) % 100 == 0:
+            PPnets.main_net.SaveModel('SaveModel/' + 'DPG-model-' + str(epoch + 1) + '.pth')
+            Utils.render(global_environment.map_class, 'PPfigure_' + str(epoch + 1) , global_environment.nodes)
     StopEvents.set()
     for thread in threads:
         thread.join()
@@ -48,7 +49,7 @@ def modelTest():
     environment = Enviroment.EnviromentClass()
     environment.ResetEnviroment(1,"GlobalPic_b")
     modelName = 'DPG-model-100000_1.pth'
-    PPnets.LoadModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\SaveModel\\' + modelName)
+    PPnets.LoadModel('SaveModel/' + modelName)
 
     PPnets.PlayGame(environment, 0, 1)
     Utils.render(environment.map_class, "modelTest")

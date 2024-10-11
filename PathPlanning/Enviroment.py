@@ -53,7 +53,7 @@ class MapClass:
         return False
 
     def ConfigExport(self) -> None:
-        config_path = 'C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Config\\TrainConfig.json'
+        config_path = 'Config/TrainConfig.json'
         try:
             with open(config_path, 'r') as file:
                 config = json.load(file)
@@ -75,7 +75,7 @@ class MapClass:
         return
 
     def ConfigImport(self) -> None:
-        config_path = 'C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Config\\TrainConfig.json'
+        config_path = 'Config/TrainConfig.json'
         try:
             with open(config_path, 'r') as file:
                 config = json.load(file)
@@ -93,7 +93,7 @@ class MapClass:
         return
 
     def MapExport(self, map_name:str) -> None:
-        map_path = 'C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Map\\' + map_name + ".txt"
+        map_path = 'Map/' + map_name + ".txt"
         with open(map_path, 'w') as file:
             for row in self.map_info:
                 file.write(' '.join(map(str, row)) + '\n')
@@ -101,7 +101,7 @@ class MapClass:
 
     def MapImport(self, map_name:str) -> None:
         self.map_info = []
-        map_path = 'C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Map\\' + map_name + ".txt"
+        map_path = 'Map/' + map_name + ".txt"
         try:
             with open(map_path, 'r') as file:
                 for line in file:
@@ -164,18 +164,16 @@ class EnviromentClass:
                 
                 distance += 1
             
-            distances.append(distance * self.map_class.resolution / num_samples)
+            distances.append(distance * self.map_class.resolution)
         
         return distances
 
-    def StateGet(self) -> tuple:
+    def StateGet(self) -> list:
         self_position = [int(item / self.map_class.resolution) for item in self.nodes[-1].point]
         distance = self.SimulateLidar(self.map_class.map_info, self_position, self.scan_degree, self.scan_range)
         relative_degree = math.atan2((self.map_class.end_point.point[1] - self_position[1]),(self.map_class.end_point.point[0] - self_position[0]))
-        relative_degree = (relative_degree + 2 * math.pi) % (2 * math.pi)
-        distance.append(relative_degree)
 
-        state = torch.tensor(numpy.array(distance), dtype=torch.float32)
+        state = [(distance, relative_degree)]
         return state
 
     def Step(self, action:float):
@@ -215,7 +213,7 @@ class EnviromentClass:
         return reward
 
     def ConfigExport(self) -> None:
-        config_path = 'C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Config\\TrainConfig.json'
+        config_path = 'Config/TrainConfig.json'
         try:
             with open(config_path, 'r') as file:
                 config = json.load(file)
@@ -237,7 +235,7 @@ class EnviromentClass:
         return
 
     def ConfigImport(self) -> None:
-        config_path = 'C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Config\\TrainConfig.json'
+        config_path = 'Config/TrainConfig.json'
         try:
             with open(config_path, 'r') as file:
                 config = json.load(file)

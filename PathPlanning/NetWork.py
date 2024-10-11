@@ -2,6 +2,7 @@ import json
 import numpy
 import torch
 import random
+from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
 
 # 超参数类
 class HyperParameters:
@@ -10,7 +11,7 @@ class HyperParameters:
         self.GetScanDegree()
 
     def GetScanDegree(self):
-        config_path = 'C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Config\\TrainConfig.json'
+        config_path = 'Config/TrainConfig.json'
         try:
             with open(config_path, 'r') as file:
                 config = json.load(file)["EnviromentConfig"]
@@ -20,7 +21,7 @@ class HyperParameters:
         return
 
     def ConfigExport(self) -> None:
-        config_path = 'C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Config\\TrainConfig.json'
+        config_path = 'Config/TrainConfig.json'
         try:
             with open(config_path, 'r') as file:
                 config = json.load(file)
@@ -46,7 +47,7 @@ class HyperParameters:
         return
 
     def ConfigImport(self) -> None:
-        config_path = 'C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Config\\TrainConfig.json'
+        config_path = 'Config/TrainConfig.json'
         try:
             with open(config_path, 'r') as file:
                 config = json.load(file)
@@ -82,7 +83,12 @@ class StateFeature(torch.nn.Module):
         self.device = device
 
     def forward(self, batch_states):
-        env_features = self.img_netWork(batch_states.to(self.device))
+        state_maps = torch.tensor(numpy.array([state[0] for state in batch_states]), dtype=torch.float32).to(self.device)
+        degree_feature = torch.tensor(numpy.array([state[1] for state in batch_states]), dtype=torch.float32).reshape(-1,1).to(self.device)
+        env_states = self.img_netWork(state_maps).reshape(-1,1)
+
+        env_features = torch.cat((env_states, degree_feature), dim=1)
+        # print(env_states.shape, degree_feature.shape,env_features.shape)
         return env_features
 
 # Actor类
@@ -90,7 +96,7 @@ class Actor(torch.nn.Module):
     def __init__(self, device:str) -> None:
         super(Actor,self).__init__()
         self.sigma_netWork = torch.nn.Sequential(
-            torch.nn.Linear(1, 64),
+            torch.nn.Linear(2, 64),
             torch.nn.ReLU(),
             torch.nn.Linear(64, 16),
             torch.nn.ReLU(),
@@ -99,7 +105,7 @@ class Actor(torch.nn.Module):
         ).to(device)
 
         self.mu_netWork = torch.nn.Sequential(
-            torch.nn.Linear(1, 64),
+            torch.nn.Linear(2, 64),
             torch.nn.ReLU(),
             torch.nn.Linear(64, 16),
             torch.nn.ReLU(),
@@ -108,7 +114,7 @@ class Actor(torch.nn.Module):
         ).to(device)
 
     def forward(self, env_feature):
-        Mu = self.mu_netWork(env_feature) * 180 + 180
+        Mu = self.mu_netWork(env_feature) * 150
         Sigma = self.sigma_netWork(env_feature)
         return Mu, Sigma
 
@@ -117,7 +123,7 @@ class Critic(torch.nn.Module):
     def __init__(self, device:str) -> None:
         super(Critic,self).__init__()
         self.value_netWork = torch.nn.Sequential(
-            torch.nn.Linear(1, 64),
+            torch.nn.Linear(2, 64),
             torch.nn.ReLU(),
             torch.nn.Linear(64, 16),
             torch.nn.ReLU(),
@@ -153,7 +159,7 @@ class TrainNet:
     def __init__(self, device) -> None:
         self.device = device
         self.hyper_parameter = HyperParameters()
-        self.env_net = StateFeature(device, int(360/self.hyper_parameter.scan_degree) + 1)
+        self.env_net = StateFeature(device, int(360/self.hyper_parameter.scan_degree))
         self.actor = Actor(device)
         self.critic = Critic(device)
         self.data_store = Store()
@@ -204,53 +210,53 @@ class TrainNet:
         return value
     
     def TrainNet(self):
+        select_data = self.data_store.LoadData(self.hyper_parameter.data_select)
+        state = [tup for data in select_data for tup in data[0]]
+        action = torch.tensor(numpy.array([data[1] for data in select_data]), dtype=torch.float32).reshape(-1,1).to(self.device)
+        reward = torch.tensor(numpy.array([data[2] for data in select_data]), dtype=torch.float32).reshape(-1,1).to(self.device)
+        next_state = [tup for data in select_data for tup in data[3]]
+        action_prob = torch.tensor(numpy.array([data[4] for data in select_data]), dtype=torch.float32).reshape(-1,1).to(self.device)
+
+        reward = (reward - reward.mean()) / (reward.std() + 1e-5)
+        with torch.no_grad():
+            target_value = reward + 0.99 * self.ValueForward(next_state).reshape(-1,1)
+        advantage = (target_value - self.ValueForward(state).reshape(-1,1)).detach()
+
         for _ in range(self.hyper_parameter.update_num):
-            select_data = self.data_store.LoadData(self.hyper_parameter.data_select)
-            state = torch.tensor(numpy.array([data[0] for data in select_data]), dtype=torch.float32).to(self.device)
-            action = torch.tensor(numpy.array([data[1] for data in select_data]), dtype=torch.float32).to(self.device)
-            reward = torch.tensor(numpy.array([data[2] for data in select_data]), dtype=torch.float32).to(self.device)
-            next_state = torch.tensor(numpy.array([data[3] for data in select_data]), dtype=torch.float32).to(self.device)
-            action_prob = torch.tensor(numpy.array([data[4] for data in select_data]), dtype=torch.float32).to(self.device)
-            # print(state.shape,action.shape,reward.shape,next_state.shape,action_prob.shape)
+            for index in BatchSampler(SubsetRandomSampler(range(len(select_data))), int(self.hyper_parameter.data_select / 2), False):
+                state_list = [state[idx] for idx in index]
 
-            reward = (reward - reward.mean()) / (reward.std() + 1e-5)
-            # print(reward.shape)
-            with torch.no_grad():
-                target_value = reward + 0.99 * self.ValueForward(next_state).reshape(-1)
-            advantage = (target_value - self.ValueForward(state)).detach()
-            # print(target_value.shape)
-
-            new_action_prob = self.ProbForward(state, action)
-            ratio = torch.exp(new_action_prob - action_prob)
-            L1 = ratio * advantage
-            L2 = torch.clamp(ratio, 1 - self.hyper_parameter.clamp_value, 1 + self.hyper_parameter.clamp_value) * advantage
-            actor_loss = -torch.min(L1, L2).mean()
-
-            self.actor_optimizer.zero_grad()
-            actor_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.actor.sigma_netWork.parameters(), self.hyper_parameter.clip_value)
-            torch.nn.utils.clip_grad_norm_(self.actor.mu_netWork.parameters(), self.hyper_parameter.clip_value)
-            self.actor_optimizer.step()
-            self.actor_loss.append(actor_loss.item())
-
-            current_value = self.ValueForward(state).reshape(-1)
-            # print(current_value.shape, target_value.shape)
-            value_loss = self.lossFunction(current_value, target_value)
-            self.critic_optimizer.zero_grad()
-            value_loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.critic.parameters(), self.hyper_parameter.clip_value)
-            self.critic_optimizer.step()
-            self.critic_loss.append(value_loss.item())
-
-            # for param in self.actor.parameters():
-            #     if param.grad is not None:
-            #         print(f'Gradient: {param.grad}')
-            # for param in self.env_net.parameters():
-            #     if param.grad is not None:
-            #         print(f'Gradient: {param.grad}')
-            # for param in self.critic.parameters():
-            #     if param.grad is not None:
-            #         print(f'Gradient: {param.grad}')
+                new_action_prob = self.ProbForward(state_list, action[index])
+                ratio = torch.exp(new_action_prob - action_prob[index])
+                # print(target_value.shape,advantage.shape,new_action_prob.shape,ratio.shape,action_prob.shape)
+                L1 = ratio * advantage[index]
+                L2 = torch.clamp(ratio, 1 - self.hyper_parameter.clamp_value, 1 + self.hyper_parameter.clamp_value) * advantage[index]
+                actor_loss = -torch.min(L1, L2).mean()
+                self.actor_optimizer.zero_grad()
+                actor_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.actor.sigma_netWork.parameters(), self.hyper_parameter.clip_value)
+                torch.nn.utils.clip_grad_norm_(self.actor.mu_netWork.parameters(), self.hyper_parameter.clip_value)
+                self.actor_optimizer.step()
+                self.actor_loss.append(actor_loss.item())
+            
+                current_value = self.ValueForward(state_list).reshape(-1,1)
+                value_loss = self.lossFunction(current_value, target_value[index])
+                self.critic_optimizer.zero_grad()
+                value_loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.critic.parameters(), self.hyper_parameter.clip_value)
+                self.critic_optimizer.step()
+                self.critic_loss.append(value_loss.item())
+            
+                # for param in self.actor.parameters():
+                #     if param.grad is not None:
+                #         print(f'Gradient: {param.grad}')
+                # for param in self.env_net.parameters():
+                #     if param.grad is not None:
+                #         print(f'Gradient: {param.grad}')
+                # for param in self.critic.parameters():
+                #     if param.grad is not None:
+                #         print(f'Gradient: {param.grad}')
+        self.data_store.ClearData()
 
     def PlayGame(self, environment, epoch=0, role=0):
         environment.ResetEnviroment(1,"GlobalPic_a")
@@ -261,6 +267,7 @@ class TrainNet:
             next_state, reward, truncated, over = environment.Step(action.item())
             self.data_store.SaveData((state, action.item(), reward, next_state, over))
             state = next_state
+            over = over or truncated
             self.reward.append(reward)
         
         sum_reward = sum(self.reward)
