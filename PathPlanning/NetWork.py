@@ -242,6 +242,16 @@ class TrainNet:
             self.critic_optimizer.step()
             self.critic_loss.append(value_loss.item())
 
+            # for param in self.actor.parameters():
+            #     if param.grad is not None:
+            #         print(f'Gradient: {param.grad}')
+            # for param in self.env_net.parameters():
+            #     if param.grad is not None:
+            #         print(f'Gradient: {param.grad}')
+            # for param in self.critic.parameters():
+            #     if param.grad is not None:
+            #         print(f'Gradient: {param.grad}')
+
     def PlayGame(self, environment, epoch=0, role=0):
         environment.ResetEnviroment(1,"GlobalPic_a")
         state = environment.StateGet()

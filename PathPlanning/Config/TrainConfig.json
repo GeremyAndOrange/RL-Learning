@@ -24,8 +24,8 @@
         "RewardGamma": -0.1
     },
     "HyperParameters": {
-        "ActorLearningRate": 0.0002,
-        "CriticLearningRate": 0.0005,
+        "ActorLearningRate": 0.002,
+        "CriticLearningRate": 0.005,
         "DiscountRate": 0.99,
         "DataSelect": 256,
         "UpdateNumber": 100,
