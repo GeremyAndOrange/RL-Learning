@@ -12,7 +12,12 @@ def calDistance(nodes) -> float:
 def render(map_class, pic_name, nodes) -> None:
     matplotlib.pyplot.figure(figsize=(10, 10))
     final_path = []
-    node = nodes[-1]
+
+    if nodes:
+        node = nodes[-1]
+    else:
+        node = map_class.start_point
+
     while node.parent is not None:
         final_path.append(node.point)
         node = node.parent
@@ -32,11 +37,11 @@ def render(map_class, pic_name, nodes) -> None:
                 matplotlib.pyplot.gca().add_patch(rectangle)
 
     matplotlib.pyplot.plot(int(map_class.start_point.point[0] / map_class.resolution), int(map_class.start_point.point[1] / map_class.resolution), 'go')
-    matplotlib.pyplot.plot(int(map_class.end_point.point[0] / map_class.resolution), int(map_class.end_point.point[1] / map_class.resolution), 'go')
+    matplotlib.pyplot.plot(int(map_class.end_point.point[0] / map_class.resolution), int(map_class.end_point.point[1] / map_class.resolution), 'ro')
     matplotlib.pyplot.xlim(0, int(map_class.width / map_class.resolution + 1))
     matplotlib.pyplot.ylim(0, int(map_class.height / map_class.resolution + 1))
     matplotlib.pyplot.gca().set_aspect('equal', adjustable='box')
     
-    path = "C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Map\\" + pic_name
+    path = "C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Map\\" + pic_name + ".png"
     matplotlib.pyplot.savefig(path, dpi=1200)
     return

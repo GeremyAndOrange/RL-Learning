@@ -2,6 +2,7 @@ import json
 import math
 import numpy
 import random
+import torch
 
 COLLISION = 1
 OUT_MAP = -1
@@ -16,13 +17,6 @@ class Node:
 # 地图类
 class MapClass:
     def __init__(self) -> None:
-        self.width = 50
-        self.height = 50
-        self.resolution = 0.5
-        self.obstacle_num = 12
-        self.obstacle_range = 4
-        self.start_point = Node([5,5])
-        self.end_point = Node([45,45])
         self.ConfigImport()
         self.GenerateMap()
 
@@ -58,22 +52,14 @@ class MapClass:
             return True
         return False
 
-    def RandomParameter(self) -> None:
-        self.width = random.randint(40,60)
-        self.height = random.randint(40,60)
-        self.resolution = random.choice([0.1, 0.2, 0.5, 1])
-        self.obstacle_num = random.randint(10,20)
-        self.obstacle_range = random.randint(3,6)
-        self.start_point = Node([random.randint(0,self.width), random.randint(0,self.height)])
-        self.end_point = Node([random.randint(0,self.width), random.randint(0,self.height)])
-        self.ConfigExport()
-        return
-
     def ConfigExport(self) -> None:
         config_path = 'C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Config\\TrainConfig.json'
-        with open(config_path, 'r') as file:
-            config = json.load(file)
-        
+        try:
+            with open(config_path, 'r') as file:
+                config = json.load(file)
+        except:
+            config = {}
+
         config["MapConfig"] = {
             "MapWidth": self.width,
             "MapHeight": self.height,
@@ -90,32 +76,40 @@ class MapClass:
 
     def ConfigImport(self) -> None:
         config_path = 'C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Config\\TrainConfig.json'
-        with open(config_path, 'r') as file:
-            config = json.load(file)["MapConfig"]
-        
-        self.width = config["MapWidth"]
-        self.height = config["MapHeight"]
-        self.resolution = config["MapResolution"]
-        self.obstacle_num = config["ObstacleNumber"]
-        self.obstacle_range = config["ObstacleRange"]
-        self.start_point = Node(config["StartPoint"])
-        self.end_point = Node(config["EndPoint"])
+        try:
+            with open(config_path, 'r') as file:
+                config = json.load(file)
+                map_config = config.get("MapConfig", {})
+
+            self.width = map_config.get("MapWidth", 50)
+            self.height = map_config.get("MapHeight", 50)
+            self.resolution = map_config.get("MapResolution", 0.5)
+            self.obstacle_num = map_config.get("ObstacleNumber", 12)
+            self.obstacle_range = map_config.get("ObstacleRange", 4)
+            self.start_point = Node(map_config.get("StartPoint", [5,5]))
+            self.end_point = Node(map_config.get("EndPoint", [45,45]))
+        except:
+            return
         return
 
     def MapExport(self, map_name:str) -> None:
-        map_path = 'C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Map\\' + map_name
-        with open(map_path, 'r') as file:
+        map_path = 'C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Map\\' + map_name + ".txt"
+        with open(map_path, 'w') as file:
             for row in self.map_info:
                 file.write(' '.join(map(str, row)) + '\n')
         return
 
     def MapImport(self, map_name:str) -> None:
-        map_path = 'C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Map\\' + map_name
-        with open(map_path, 'w') as file:
-            for line in file:
-                numbers = line.strip().split()
-                row = [int(num) for num in numbers]
-                self.map_info.append(row)
+        self.map_info = []
+        map_path = 'C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Map\\' + map_name + ".txt"
+        try:
+            with open(map_path, 'r') as file:
+                for line in file:
+                    numbers = line.strip().split()
+                    row = [float(num) for num in numbers]
+                    self.map_info.append(row)
+        except:
+            return
         return
 
 # 环境类
@@ -123,34 +117,65 @@ class EnviromentClass:
     def __init__(self) -> None:
         self.map_class = MapClass()
         self.nodes = [self.map_class.start_point]
-        self.max_steps = 500
-        self.scan_range = 50
-        self.step_length = 0.5
-        self.alpha = 0.1
-        self.beta = 0.1
-        self.gamma = 0.1
         self.ConfigImport()
 
-    def ResetEnviroment(self) -> None:
+    def ResetEnviroment(self, type:int, map_name:str = None) -> None:
+        '''
+        :param type:
+            0: random generate new map;
+            1: import old map;
+        :param map_name:
+            neccencery if type == 1
+        '''
         self.map_class.ConfigImport()
-        self.map_class.GenerateMap()
+        if type == 0:
+            self.map_class.GenerateMap()
+        elif type == 1 and map_name is not None:
+            self.map_class.MapImport(map_name)
+        else :
+            return
         self.nodes = [self.map_class.start_point]
         return
 
+    def SimulateLidar(self, grid, origin, angle_step, max_range):
+        '''    
+        :param grid: map_info。
+        :param origin: self_position。
+        :param angle_step: sampling degree。
+        :param max_range: scan_range。
+        '''
+        distances = []
+        x0, y0 = origin
+        num_samples = int(360 / angle_step)
+        
+        for i in range(num_samples):
+            angle = math.radians(angle_step * i)
+            distance = 0
+
+            while distance < max_range:
+                x = x0 + distance * math.cos(angle)
+                y = y0 + distance * math.sin(angle)
+
+                if 0 <= int(x) < len(grid[0]) and 0 <= int(y) < len(grid):
+                    if grid[int(y)][int(x)] == COLLISION:
+                        break
+                else:
+                    break
+                
+                distance += 1
+            
+            distances.append(distance * self.map_class.resolution / num_samples)
+        
+        return distances
+
     def StateGet(self) -> tuple:
         self_position = [int(item / self.map_class.resolution) for item in self.nodes[-1].point]
-        state_map = [[SPACE for _ in range(2 * self.scan_range + 1)] for _ in range(2 * self.scan_range + 1)]
+        distance = self.SimulateLidar(self.map_class.map_info, self_position, self.scan_degree, self.scan_range)
+        relative_degree = math.atan2((self.map_class.end_point.point[1] - self_position[1]),(self.map_class.end_point.point[0] - self_position[0]))
+        relative_degree = (relative_degree + 2 * math.pi) % (2 * math.pi)
+        distance.append(relative_degree)
 
-        for x in range(2 * self.scan_range + 1):
-            for y in range(2 * self.scan_range + 1):
-                map_x = x + (self_position[0] - self.scan_range)
-                map_y = y + (self_position[1] - self.scan_range)
-                if map_x >= 0 and map_x < len(self.map_class.map_info[0]) and map_y >= 0 and map_y < len(self.map_class.map_info):
-                    state_map[x][y] = self.map_class.map_info[map_x][map_y]
-                else:
-                    state_map[x][y] = OUT_MAP
-
-        state = [(state_map, self.nodes[-1].point, self.map_class.end_point.point)]
+        state = torch.tensor(numpy.array(distance), dtype=torch.float32)
         return state
 
     def Step(self, action:float):
@@ -182,21 +207,25 @@ class EnviromentClass:
         new_distance = numpy.linalg.norm(numpy.array(self.nodes[-1].point) - numpy.array(self.map_class.end_point.point))
         reward_1 = self.alpha * (old_distance - new_distance)
         if self.nodes[-1].point == self.map_class.end_point.point:
-            reward_2 = self.beta * (self.max_steps - len(self.nodes))
+            reward_2 = self.beta * (self.max_steps - len(self.nodes)) + 50
         if self.map_class.CheckCollision(self.nodes[-1]):
-            reward_3 = -self.beta * (self.max_steps - len(self.nodes)) * self.gamma
+            reward_3 = self.gamma * (self.max_steps - len(self.nodes)) - 50
 
         reward = reward_1 + reward_2 + reward_3
         return reward
 
     def ConfigExport(self) -> None:
         config_path = 'C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Config\\TrainConfig.json'
-        with open(config_path, 'r') as file:
-            config = json.load(file)
+        try:
+            with open(config_path, 'r') as file:
+                config = json.load(file)
+        except:
+            config = {}
 
         config["EnviromentConfig"] = {
             "MaxSteps": self.max_steps,
             "ScanRange": self.scan_range,
+            "ScanDegree": self.scan_degree,
             "StepLength": self.step_length,
             "RewardAlpha": self.alpha,
             "RewardBeta": self.beta,
@@ -209,13 +238,18 @@ class EnviromentClass:
 
     def ConfigImport(self) -> None:
         config_path = 'C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Config\\TrainConfig.json'
-        with open(config_path, 'r') as file:
-            config = json.load(file)["EnviromentConfig"]
-        
-        self.max_steps = config["MaxSteps"]
-        self.scan_range = config["ScanRange"]
-        self.step_length = config["StepLength"]
-        self.alpha = config["RewardAlpha"]
-        self.beta = config["RewardBeta"]
-        self.gamma = config["RewardGamma"]
+        try:
+            with open(config_path, 'r') as file:
+                config = json.load(file)
+                environment_config = config.get("EnviromentConfig", {})
+            
+            self.max_steps = environment_config.get("MaxSteps", 500)
+            self.scan_range = environment_config.get("ScanRange", 50)
+            self.scan_degree = environment_config.get("ScanDegree", 7.2)
+            self.step_length = environment_config.get("StepLength", 0.5)
+            self.alpha = environment_config.get("RewardAlpha", 0.2)
+            self.beta = environment_config.get("RewardBeta", 0.1)
+            self.gamma = environment_config.get("RewardGamma", -0.1)
+        except:
+            return
         return

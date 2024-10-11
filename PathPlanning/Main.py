@@ -13,7 +13,8 @@ def modelTrain(path=None):
     
     writer = SummaryWriter('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\Log')
     global_environment = Enviroment.EnviromentClass()
-    Utils.render(global_environment.map_class, "GlobalPic.png", global_environment.nodes)
+    global_environment.ResetEnviroment(1,"GlobalPic_a")
+    Utils.render(global_environment.map_class, "GlobalPic_a", global_environment.nodes)
 
     threads = []
     StartEvent = [threading.Event() for _ in range(PPnets.main_net.hyper_parameter.worker_num)]
@@ -45,6 +46,7 @@ def modelTrain(path=None):
 def modelTest():
     PPnets = NetWork.TrainNet("cuda")
     environment = Enviroment.EnviromentClass()
+    environment.ResetEnviroment(1,"GlobalPic_b")
     modelName = 'DPG-model-100000_1.pth'
     PPnets.LoadModel('C:\\Users\\60520\\Desktop\\RL-learning\\PathPlanning\\SaveModel\\' + modelName)
 
@@ -57,6 +59,7 @@ def workerThread(PPnets, StartEvent, JoinEvent, StopEvent, localEnvironment=None
         if StartEvent.is_set():
             if localEnvironment == None:
                 localEnvironment = Enviroment.EnviromentClass()
+                localEnvironment.ResetEnviroment(1,"GlobalPic_a")
             worker.ResetNetState()
             worker.UpdateNetPatameter(PPnets.main_net)
             worker.GenerateData(localEnvironment)
