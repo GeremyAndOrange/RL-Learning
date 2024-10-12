@@ -205,9 +205,9 @@ class EnviromentClass:
         new_distance = numpy.linalg.norm(numpy.array(self.nodes[-1].point) - numpy.array(self.map_class.end_point.point))
         reward_1 = self.alpha * (old_distance - new_distance)
         if self.nodes[-1].point == self.map_class.end_point.point:
-            reward_2 = self.beta * (self.max_steps - len(self.nodes)) + 50
+            reward_2 = self.beta * (self.max_steps - len(self.nodes)) + 10
         if self.map_class.CheckCollision(self.nodes[-1]):
-            reward_3 = self.gamma * (self.max_steps - len(self.nodes)) - 50
+            reward_3 = self.gamma * (self.max_steps - len(self.nodes)) - 10
 
         reward = reward_1 + reward_2 + reward_3
         return reward

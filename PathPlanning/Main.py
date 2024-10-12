@@ -36,7 +36,7 @@ def modelTrain(path=None):
 
         PPnets.main_net.TrainNet()
         writer.add_scalar('reward-epoch', PPnets.main_net.PlayGame(global_environment, epoch, 1), epoch)
-        if (epoch + 1) % 100 == 0:
+        if (epoch + 1) % 1000 == 0:
             PPnets.main_net.SaveModel('SaveModel/' + 'DPG-model-' + str(epoch + 1) + '.pth')
             Utils.render(global_environment.map_class, 'PPfigure_' + str(epoch + 1) , global_environment.nodes)
     StopEvents.set()

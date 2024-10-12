@@ -17,23 +17,23 @@
     "EnviromentConfig": {
         "MaxSteps": 500,
         "ScanRange": 50,
-        "ScanDegree": 7.2,
+        "ScanDegree": 3.6,
         "StepLength": 0.5,
-        "RewardAlpha": 0.2,
-        "RewardBeta": 0.1,
-        "RewardGamma": -0.1
+        "RewardAlpha": 1.2,
+        "RewardBeta": 0.08,
+        "RewardGamma": -0.08
     },
     "HyperParameters": {
         "ActorLearningRate": 0.002,
         "CriticLearningRate": 0.005,
-        "DiscountRate": 0.99,
-        "DataSelect": 1024,
-        "UpdateNumber": 128,
+        "DiscountRate": 0.98,
+        "DataSelect": 128,
+        "UpdateNumber": 16,
         "ClampValue": 0.2,
         "ClipValue": 0.2,
         "DataMax": 2048,
         "WorkerNumber": 4,
-        "TrainEpoch": 10000,
-        "ScanDegree": 7.2
+        "TrainEpoch": 100000,
+        "ScanDegree": 3.6
     }
 }

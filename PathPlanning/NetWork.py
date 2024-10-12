@@ -15,7 +15,7 @@ class HyperParameters:
         try:
             with open(config_path, 'r') as file:
                 config = json.load(file)["EnviromentConfig"]
-            self.scan_degree = config["ScanDegree"]
+                self.scan_degree = config["ScanDegree"]
         except:
             self.scan_degree = 7.2
         return
@@ -114,8 +114,9 @@ class Actor(torch.nn.Module):
         ).to(device)
 
     def forward(self, env_feature):
-        Mu = self.mu_netWork(env_feature) * 150
+        Mu = self.mu_netWork(env_feature) * 175
         Sigma = self.sigma_netWork(env_feature)
+        Sigma = torch.clamp(Sigma, 0.1, 100)
         return Mu, Sigma
 
 # Critic类
@@ -194,14 +195,14 @@ class TrainNet:
         state_feature = self.env_net(state)
         Mu, Sigma = self.actor(state_feature)
         distribution = torch.distributions.Normal(Mu, Sigma)
-        logProb = distribution.log_prob(action)
+        logProb = distribution.log_prob(action).reshape(-1,1)
         return logProb
 
     def ActionForward(self, state):
         state_feature = self.env_net(state)
         Mu, Sigma = self.actor(state_feature)
         distribution = torch.distributions.Normal(Mu, Sigma)
-        action = distribution.sample().clamp(-180, 180)
+        action = distribution.sample().clamp(-175, 175) + random.randint(-5,5)
         return action
     
     def ValueForward(self, state):
@@ -210,20 +211,21 @@ class TrainNet:
         return value
     
     def TrainNet(self):
-        select_data = self.data_store.LoadData(self.hyper_parameter.data_select)
+        select_data = self.data_store.LoadData(self.hyper_parameter.data_max)
         state = [tup for data in select_data for tup in data[0]]
         action = torch.tensor(numpy.array([data[1] for data in select_data]), dtype=torch.float32).reshape(-1,1).to(self.device)
         reward = torch.tensor(numpy.array([data[2] for data in select_data]), dtype=torch.float32).reshape(-1,1).to(self.device)
         next_state = [tup for data in select_data for tup in data[3]]
-        action_prob = torch.tensor(numpy.array([data[4] for data in select_data]), dtype=torch.float32).reshape(-1,1).to(self.device)
+        over = torch.tensor(numpy.array([data[4] for data in select_data]), dtype=torch.float32).reshape(-1,1).to(self.device)
+        action_prob = torch.tensor([data[5] for data in select_data], dtype=torch.float32).reshape(-1,1).to(self.device)
 
         reward = (reward - reward.mean()) / (reward.std() + 1e-5)
         with torch.no_grad():
-            target_value = reward + 0.99 * self.ValueForward(next_state).reshape(-1,1)
+            target_value = reward + self.hyper_parameter.gamma * self.ValueForward(next_state).reshape(-1,1) * (1 - over)
         advantage = (target_value - self.ValueForward(state).reshape(-1,1)).detach()
 
         for _ in range(self.hyper_parameter.update_num):
-            for index in BatchSampler(SubsetRandomSampler(range(len(select_data))), int(self.hyper_parameter.data_select / 2), False):
+            for index in BatchSampler(SubsetRandomSampler(range(len(select_data))), int(self.hyper_parameter.data_select), False):
                 state_list = [state[idx] for idx in index]
 
                 new_action_prob = self.ProbForward(state_list, action[index])
@@ -264,10 +266,12 @@ class TrainNet:
         over = False
         while not over:
             action = self.ActionForward(state)
+            action_prob = self.ProbForward(state, action)
             next_state, reward, truncated, over = environment.Step(action.item())
-            self.data_store.SaveData((state, action.item(), reward, next_state, over))
-            state = next_state
             over = over or truncated
+            self.data_store.SaveData((state, action.item(), reward, next_state, over, action_prob))
+            state = next_state
+
             self.reward.append(reward)
         
         sum_reward = sum(self.reward)
