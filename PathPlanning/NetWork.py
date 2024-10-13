@@ -278,7 +278,7 @@ class TrainNet:
     def PlayGame(self, environment, epoch=0):
         environment.ResetEnviroment(1,"GlobalPic_a")
         state = environment.StateGet()
-        over = False
+        over, trianed = False, False
         while not over:
             action = self.ActionForward(state)
             action_prob = self.ProbForward(state, action)
@@ -288,12 +288,13 @@ class TrainNet:
 
             if self.data_store.Length() >= self.hyper_parameter.data_max:
                 self.TrainNet()
+                trianed = True
 
             state = next_state
             self.reward.append(reward)
             sum_reward = sum(self.reward)
 
-        if (epoch + 1) % 100 == 0:
+        if trianed:
             print(f'Epoch: {epoch + 1}, ActorLoss: {sum(self.actor_loss)}, CriticLoss: {sum(self.critic_loss)}, Reward: {sum_reward}')
         self.Initialize()
         return sum_reward
