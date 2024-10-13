@@ -162,19 +162,23 @@ class TrainNet:
         self.hyper_parameter = HyperParameters()
         self.env_net = StateFeature(device, int(360/self.hyper_parameter.scan_degree))
         self.actor = Actor(device)
+        self.new_actor = Actor(device)
         self.critic = Critic(device)
         self.data_store = Store()
 
         self.lossFunction = torch.nn.MSELoss()
         self.actor_optimizer = torch.optim.Adam(list(self.actor.parameters()) + list(self.env_net.parameters()), lr=self.hyper_parameter.actor_lr)
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=self.hyper_parameter.critic_lr)
-
+        self.InitialParameter()
         self.Initialize()
 
     def Initialize(self):
         self.reward = []
         self.actor_loss = []
         self.critic_loss = []
+
+    def InitialParameter(self):
+        self.new_actor.load_state_dict(self.actor.state_dict())
 
     def SaveModel(self, path):
         torch.save({
@@ -197,6 +201,13 @@ class TrainNet:
         distribution = torch.distributions.Normal(Mu, Sigma)
         logProb = distribution.log_prob(action).reshape(-1,1)
         return logProb
+    
+    def NewProbForward(self, state, action):
+        state_feature = self.env_net(state)
+        Mu, Sigma = self.new_actor(state_feature)
+        distribution = torch.distributions.Normal(Mu, Sigma)
+        logProb = distribution.log_prob(action).reshape(-1, 1)
+        return logProb
 
     def ActionForward(self, state):
         state_feature = self.env_net(state)
@@ -210,6 +221,9 @@ class TrainNet:
         value = self.critic(state_feature)
         return value
     
+    def UpdateTargetNetWork(self, TargetNetWork, NetWork):
+        TargetNetWork.load_state_dict(NetWork.state_dict())
+
     def TrainNet(self):
         select_data = self.data_store.LoadData(self.hyper_parameter.data_max)
         state = [tup for data in select_data for tup in data[0]]
@@ -228,7 +242,7 @@ class TrainNet:
             for index in BatchSampler(SubsetRandomSampler(range(len(select_data))), int(self.hyper_parameter.data_select), False):
                 state_list = [state[idx] for idx in index]
 
-                new_action_prob = self.ProbForward(state_list, action[index])
+                new_action_prob = self.NewProbForward(state_list, action[index])
                 ratio = torch.exp(new_action_prob - action_prob[index])
                 # print(target_value.shape,advantage.shape,new_action_prob.shape,ratio.shape,action_prob.shape)
                 L1 = ratio * advantage[index]
@@ -258,9 +272,10 @@ class TrainNet:
                 # for param in self.critic.parameters():
                 #     if param.grad is not None:
                 #         print(f'Gradient: {param.grad}')
+        self.UpdateTargetNetWork(self.actor, self.new_actor)
         self.data_store.ClearData()
 
-    def PlayGame(self, environment, epoch=0, role=0):
+    def PlayGame(self, environment, epoch=0):
         environment.ResetEnviroment(1,"GlobalPic_a")
         state = environment.StateGet()
         over = False
@@ -270,43 +285,15 @@ class TrainNet:
             next_state, reward, truncated, over = environment.Step(action.item())
             over = over or truncated
             self.data_store.SaveData((state, action.item(), reward, next_state, over, action_prob))
-            state = next_state
 
+            if self.data_store.Length() >= self.hyper_parameter.data_max:
+                self.TrainNet()
+
+            state = next_state
             self.reward.append(reward)
-        
-        sum_reward = sum(self.reward)
-        if role == 1:   # Central类
+            sum_reward = sum(self.reward)
+
+        if (epoch + 1) % 100 == 0:
             print(f'Epoch: {epoch}, ActorLoss: {sum(self.actor_loss)}, CriticLoss: {sum(self.critic_loss)}, Reward: {sum_reward}')
         self.Initialize()
         return sum_reward
-
-# Worker类
-class Worker:
-    def __init__(self, trian_net:TrainNet) -> None:
-        self.trian_net = trian_net
-    
-    def ResetNetState(self):
-        self.trian_net.data_store.ClearData()
-
-    def GenerateData(self, enviroment):
-        self.trian_net.PlayGame(enviroment)
-    
-    def CommitData(self) -> list:
-        return self.trian_net.data_store.data_store
-
-    def UpdateNetPatameter(self, new_train_net:TrainNet):
-        self.trian_net.actor.load_state_dict(new_train_net.actor.state_dict())
-        self.trian_net.critic.load_state_dict(new_train_net.critic.state_dict())
-        self.trian_net.env_net.load_state_dict(new_train_net.env_net.state_dict())
-
-# Central类
-class Central:
-    def __init__(self, device) -> None:
-        self.main_net = TrainNet(device)
-
-    def GetData(self, data_list:list):
-        for item in data_list:
-            self.main_net.data_store.SaveData(item)
-        
-        while self.main_net.data_store.Length() > self.main_net.hyper_parameter.data_max:
-            self.main_net.data_store.PopData()

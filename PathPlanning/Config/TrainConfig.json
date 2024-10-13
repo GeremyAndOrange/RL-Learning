@@ -27,12 +27,12 @@
         "ActorLearningRate": 0.002,
         "CriticLearningRate": 0.005,
         "DiscountRate": 0.98,
-        "DataSelect": 128,
+        "DataSelect": 64,
         "UpdateNumber": 16,
         "ClampValue": 0.2,
         "ClipValue": 0.2,
-        "DataMax": 2048,
-        "WorkerNumber": 4,
+        "DataMax": 256,
+        "WorkerNumber": 1,
         "TrainEpoch": 100000,
         "ScanDegree": 3.6
     }
