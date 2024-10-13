@@ -162,19 +162,23 @@ class TrainNet:
         self.hyper_parameter = HyperParameters()
         self.env_net = StateFeature(device, int(360/self.hyper_parameter.scan_degree))
         self.actor = Actor(device)
+        self.new_actor = Actor(device)
         self.critic = Critic(device)
         self.data_store = Store()
 
         self.lossFunction = torch.nn.MSELoss()
         self.actor_optimizer = torch.optim.Adam(list(self.actor.parameters()) + list(self.env_net.parameters()), lr=self.hyper_parameter.actor_lr)
         self.critic_optimizer = torch.optim.Adam(self.critic.parameters(), lr=self.hyper_parameter.critic_lr)
-
+        self.InitialParameter()
         self.Initialize()
 
     def Initialize(self):
         self.reward = []
         self.actor_loss = []
         self.critic_loss = []
+
+    def InitialParameter(self):
+        self.new_actor.load_state_dict(self.actor.state_dict())
 
     def SaveModel(self, path):
         torch.save({
@@ -198,6 +202,13 @@ class TrainNet:
         logProb = distribution.log_prob(action).reshape(-1,1)
         return logProb
 
+    def NewProbForward(self, state, action):
+        state_feature = self.env_net(state)
+        Mu, Sigma = self.new_actor(state_feature)
+        distribution = torch.distributions.Normal(Mu, Sigma)
+        logProb = distribution.log_prob(action).reshape(-1, 1)
+        return logProb
+
     def ActionForward(self, state):
         state_feature = self.env_net(state)
         Mu, Sigma = self.actor(state_feature)
@@ -209,7 +220,10 @@ class TrainNet:
         state_feature = self.env_net(state)
         value = self.critic(state_feature)
         return value
-    
+
+    def UpdateTargetNetWork(self, TargetNetWork, NetWork):
+        TargetNetWork.load_state_dict(NetWork.state_dict())
+
     def TrainNet(self):
         select_data = self.data_store.LoadData(self.hyper_parameter.data_max)
         state = [tup for data in select_data for tup in data[0]]
@@ -228,7 +242,7 @@ class TrainNet:
             for index in BatchSampler(SubsetRandomSampler(range(len(select_data))), int(self.hyper_parameter.data_select), False):
                 state_list = [state[idx] for idx in index]
 
-                new_action_prob = self.ProbForward(state_list, action[index])
+                new_action_prob = self.NewProbForward(state_list, action[index])
                 ratio = torch.exp(new_action_prob - action_prob[index])
                 # print(target_value.shape,advantage.shape,new_action_prob.shape,ratio.shape,action_prob.shape)
                 L1 = ratio * advantage[index]
@@ -258,6 +272,7 @@ class TrainNet:
                 # for param in self.critic.parameters():
                 #     if param.grad is not None:
                 #         print(f'Gradient: {param.grad}')
+        self.UpdateTargetNetWork(self.actor, self.new_actor)
         self.data_store.ClearData()
 
     def PlayGame(self, environment, epoch=0, role=0):
