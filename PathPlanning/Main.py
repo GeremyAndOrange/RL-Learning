@@ -52,7 +52,7 @@ def modelTest():
     PPnets.LoadModel('SaveModel/' + modelName)
 
     PPnets.PlayGame(environment, 0, 1)
-    Utils.render(environment.map_class, "modelTest")
+    Utils.render(environment.map_class, "modelTest", environment.nodes)
 
 def workerThread(PPnets, StartEvent, JoinEvent, StopEvent, localEnvironment=None):
     worker = NetWork.Worker(copy.deepcopy(PPnets.main_net))
