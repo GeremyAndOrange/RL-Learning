@@ -294,6 +294,6 @@ class TrainNet:
             sum_reward = sum(self.reward)
 
         if (epoch + 1) % 100 == 0:
-            print(f'Epoch: {epoch}, ActorLoss: {sum(self.actor_loss)}, CriticLoss: {sum(self.critic_loss)}, Reward: {sum_reward}')
+            print(f'Epoch: {epoch + 1}, ActorLoss: {sum(self.actor_loss)}, CriticLoss: {sum(self.critic_loss)}, Reward: {sum_reward}')
         self.Initialize()
         return sum_reward
