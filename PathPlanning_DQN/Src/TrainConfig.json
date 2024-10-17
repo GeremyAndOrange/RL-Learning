@@ -1,0 +1,35 @@
+{
+    "MapConfig": {
+        "MapWidth": 50,
+        "MapHeight": 50,
+        "MapResolution": 0.25
+    },
+    "EnvironmentConfig": {
+        "Gamma_1": 4,
+        "Gamma_2": 0.1,
+        "Gamma_3": -0.1,
+        "MaxSteps": 500,
+        "LidarAngle": 3.6,
+        "LidarLength": 5,
+        "EndPoint": [
+            180,
+            180
+        ],
+        "StartPoint": [
+            20,
+            20
+        ]
+    },
+    "HyperParameters": {
+        "LearningRate": 0.001,
+        "Epsilon": 0.999,
+        "DataMax": 1000000,
+        "DataSelect": 256,
+        "TrainEpoch": 10000,
+        "DiscountRate": 0.99
+    },
+    "GenerateMap": {
+        "ObstacleNumber": 12,
+        "ObstacleRange": 20
+    }
+}
